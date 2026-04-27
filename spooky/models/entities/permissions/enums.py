@@ -41,6 +41,7 @@ class AppPermission(str, Enum):
     MODERATE_MEMBERS = "moderate_members"
     MOVE_MEMBERS = "move_members"
     MUTE_MEMBERS = "mute_members"
+    PIN_MESSAGES = "pin_messages"
     PRIORITY_SPEAKER = "priority_speaker"
     READ_MESSAGE_HISTORY = "read_message_history"
     READ_MESSAGES = "read_messages"
