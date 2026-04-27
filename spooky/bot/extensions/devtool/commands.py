@@ -424,6 +424,13 @@ class DevtoolCommands(commands.Cog):
                 .scalars()
                 .all()
             )
+            config_thread_id = (
+                await session.execute(
+                    select(BuyerChannel.config_thread_id)
+                    .where(BuyerChannel.user_id == int(member.id))
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
 
         code_by_role = {int(row.role_id): row for row in code_rows}
 
@@ -454,8 +461,26 @@ class DevtoolCommands(commands.Cog):
             f"{_slot(SEMI_RAGE_VISUAL_ROLE_ID)}"
         )
 
+        if config_thread_id is None:
+            await inter.response.send_message(
+                embed=status_card(False, f"No CONFIG CODES thread is stored for {member.mention}."),
+                ephemeral=True,
+            )
+            return
+
+        config_thread = self.bot.get_channel(int(config_thread_id))
+        if not isinstance(config_thread, disnake.Thread):
+            await inter.response.send_message(
+                embed=status_card(False, "Stored CONFIG CODES thread is missing or inaccessible."),
+                ephemeral=True,
+            )
+            return
+
+        await config_thread.send(summary)
         await inter.response.send_message(
-            embed=status_card(True, summary, ensure_period=False),
+            embed=status_card(
+                True, f"Sent latest config access summary to {config_thread.mention}."
+            ),
             ephemeral=True,
         )
 
