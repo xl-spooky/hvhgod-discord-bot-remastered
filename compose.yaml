@@ -1,10 +1,4 @@
 services:
-  redis:
-    image: redis:7
-    restart: always
-    ports:
-      - 6379:6379
-
   db:
     image: postgres
     restart: always
@@ -40,15 +34,12 @@ services:
         required: false
     environment:
       PYTHONDONTWRITEBYTECODE: "1"
-      # Point ORM/Redis to the dockerized services by default
+      # Point ORM to the dockerized database service by default
       DB_HOST: db
       DB_PORT: "5432"
       DB_USER: spooky
       DB_PASS: spooky
       DB_NAME: spookydb
-      REDIS_HOST: redis
-      REDIS_PORT: "6379"
-      REDIS_DB: "0"
 
     develop:
       watch:
@@ -81,4 +72,5 @@ services:
     volumes:
       # Mount the project so generated files (migrations, alembic.ini) persist on host
       - ./:/app
-    command: /bin/sh -lc "poetry install --no-root && ./scripts/migrate.sh"
+    entrypoint: ./scripts/migrate-entrypoint.sh
+    command: ["upgrade", "head"]
