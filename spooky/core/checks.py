@@ -55,6 +55,9 @@ import disnake
 from disnake.ext import commands
 from loguru import logger
 from spooky.bot import Spooky
+from spooky.db import get_session
+from spooky.models.entities.permissions import AppPermission, UserPermissionOverride
+from sqlalchemy import select
 
 T = TypeVar("T")
 
@@ -160,6 +163,53 @@ def requires_database() -> Callable[[T], T]:  # type: ignore[override]
 
     # Disnake accepts interaction predicates at runtime,
     # but Pylance's stubs expect Context-based checks. Cast to satisfy types.
+    return cast(Callable[[T], T], commands.check(cast(Any, predicate)))
+
+
+def fakeperms_or_discordperm(permission: AppPermission | str) -> Callable[[T], T]:  # type: ignore[override]
+    """Allow execution when user has Discord permission or fake-perm override.
+
+    Parameters
+    ----------
+    permission : AppPermission | str
+        Permission name (e.g. ``AppPermission.MANAGE_GUILD``).
+    """
+    perm_name = permission.value if isinstance(permission, AppPermission) else str(permission)
+
+    async def predicate(ctx: commands.Context[Spooky] | disnake.AppCmdInter[Spooky]) -> bool:
+        guild = getattr(ctx, "guild", None)
+        actor = getattr(ctx, "author", None) or getattr(ctx, "user", None)
+        if guild is None or actor is None:
+            return False
+
+        guild_permissions = getattr(actor, "guild_permissions", None)
+        if guild_permissions is not None and bool(getattr(guild_permissions, perm_name, False)):
+            return True
+
+        if not db_enabled():
+            return False
+
+        async with get_session() as session:
+            result = await session.execute(
+                select(UserPermissionOverride.allowed)
+                .where(
+                    UserPermissionOverride.guild_id == int(guild.id),
+                    UserPermissionOverride.user_id == int(actor.id),
+                    UserPermissionOverride.perm_name == perm_name,
+                )
+                .order_by(UserPermissionOverride.id.desc())
+                .limit(1)
+            )
+            allowed = result.scalar_one_or_none()
+
+        return bool(allowed)
+
+    setattr(
+        predicate,
+        "__spooky_check_meta__",
+        {"name": "fakeperms_or_discordperm", "permission": perm_name},
+    )
+
     return cast(Callable[[T], T], commands.check(cast(Any, predicate)))
 
 

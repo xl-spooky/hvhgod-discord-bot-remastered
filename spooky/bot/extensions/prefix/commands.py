@@ -47,8 +47,10 @@ from disnake.ext import commands
 from spooky.bot import Spooky
 from spooky.bot.context import SpookyContext
 from spooky.bot.prefix import DEFAULT_PREFIX, refresh_guild_prefix, refresh_user_prefix
+from spooky.core.checks import fakeperms_or_discordperm
 from spooky.core.exceptions import MissingSubcommandError
 from spooky.db import get_session
+from spooky.models.entities.permissions import AppPermission
 
 from .utils import (
     build_status_embed,
@@ -159,7 +161,7 @@ class PrefixCommands(commands.Cog):
             "example": ",prefix guild ;",
         },
     )
-    @commands.has_guild_permissions(manage_guild=True)
+    @fakeperms_or_discordperm(AppPermission.MANAGE_GUILD)
     async def prefix_guild(self, ctx: SpookyContext, prefix: str | None = None) -> None:
         """Manage the current guild's custom prefix.
 
