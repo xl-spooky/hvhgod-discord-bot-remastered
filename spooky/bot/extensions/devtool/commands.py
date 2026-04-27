@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from contextlib import suppress
 from typing import Literal
 
@@ -410,7 +411,6 @@ class DevtoolCommands(commands.Cog):
             )
             return
 
-        member_role_ids = {int(role.id) for role in member.roles}
         tracked_roles = {
             SEMI_LEGIT_MAIN_ROLE_ID,
             SEMI_LEGIT_VISUAL_ROLE_ID,
@@ -436,36 +436,8 @@ class DevtoolCommands(commands.Cog):
                 )
             ).scalar_one_or_none()
 
-        code_by_role: dict[int, list[BuyerCode]] = {}
-        for row in code_rows:
-            code_by_role.setdefault(int(row.role_id), []).append(row)
-
-        def _slot(role_id: int) -> str:
-            if role_id not in member_role_ids:
-                return "Open ticket to purchase the config."
-            rows = code_by_role.get(role_id, [])
-            if not rows:
-                return "⚠️ Not configured yet."
-            ordered = sorted(rows, key=lambda item: item.color.lower())
-            lines: list[str] = []
-            for row in ordered:
-                lines.append(f"- **{row.color}** • Version `{row.version}`\n  Code: ||{row.code}||")
-            return "\n".join(lines)
-
-        summary = (
-            "## LATEST CONFIG ACCESS\n"
-            f"{member.mention}\n\n"
-            "Your currently available config codes are listed below "
-            "based on your assigned roles.\n\n"
-            "### Semi-Legit • Main Branch\n"
-            f"{_slot(SEMI_LEGIT_MAIN_ROLE_ID)}\n\n"
-            "### Semi-Legit • Visuals Add-On\n"
-            f"{_slot(SEMI_LEGIT_VISUAL_ROLE_ID)}\n\n"
-            "### Semi-Rage • Main Branch\n"
-            f"{_slot(SEMI_RAGE_MAIN_ROLE_ID)}\n\n"
-            "### Semi-Rage • Visuals Add-On\n"
-            f"{_slot(SEMI_RAGE_VISUAL_ROLE_ID)}"
-        )
+        code_by_role = self._group_codes_by_role(code_rows)
+        summary = self._build_member_code_summary(member=member, code_by_role=code_by_role)
 
         if config_thread_id is None:
             await inter.response.send_message(
@@ -488,6 +460,142 @@ class DevtoolCommands(commands.Cog):
                 True, f"Sent latest config access summary to {config_thread.mention}."
             ),
             ephemeral=True,
+        )
+
+    @devtool.sub_command(name="sendallmembercode")
+    async def devtool_sendallmembercode(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        note: str,
+    ) -> None:
+        """Send role-based config summaries to all persisted buyer config threads."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        guild = inter.guild
+        if guild is None:
+            await inter.response.send_message(
+                embed=status_card(False, "This command can only be used in a guild."),
+                ephemeral=True,
+            )
+            return
+
+        tracked_roles = {
+            SEMI_LEGIT_MAIN_ROLE_ID,
+            SEMI_LEGIT_VISUAL_ROLE_ID,
+            SEMI_RAGE_MAIN_ROLE_ID,
+            SEMI_RAGE_VISUAL_ROLE_ID,
+        }
+
+        async with get_session() as session:
+            code_rows = (
+                (
+                    await session.execute(
+                        select(BuyerCode).where(BuyerCode.role_id.in_(tracked_roles))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            buyer_rows = (
+                (await session.execute(select(BuyerChannel.user_id, BuyerChannel.config_thread_id)))
+                .tuples()
+                .all()
+            )
+
+        if not buyer_rows:
+            await inter.response.send_message(
+                embed=status_card(False, "No buyer channels are stored yet."),
+                ephemeral=True,
+            )
+            return
+
+        code_by_role = self._group_codes_by_role(code_rows)
+        sent = 0
+        missing_threads = 0
+        missing_members = 0
+
+        for user_id, config_thread_id in buyer_rows:
+            member = guild.get_member(int(user_id))
+            if member is None:
+                missing_members += 1
+                continue
+
+            config_thread = self.bot.get_channel(int(config_thread_id))
+            if not isinstance(config_thread, disnake.Thread):
+                missing_threads += 1
+                continue
+
+            summary = self._build_member_code_summary(
+                member=member,
+                code_by_role=code_by_role,
+                note=note,
+            )
+            with suppress(Exception):
+                await config_thread.send(summary)
+                sent += 1
+
+        await inter.response.send_message(
+            embed=status_card(
+                True,
+                (
+                    f"Sent config summaries to {sent}/{len(buyer_rows)} buyer threads. "
+                    f"Missing members: {missing_members}. "
+                    f"Missing/inaccessible threads: {missing_threads}."
+                ),
+            ),
+            ephemeral=True,
+        )
+
+    @staticmethod
+    def _group_codes_by_role(rows: Sequence[BuyerCode]) -> dict[int, list[BuyerCode]]:
+        """Group code rows by role id for summary rendering."""
+        grouped: dict[int, list[BuyerCode]] = {}
+        for row in rows:
+            grouped.setdefault(int(row.role_id), []).append(row)
+        return grouped
+
+    @staticmethod
+    def _build_member_code_summary(
+        *,
+        member: disnake.Member,
+        code_by_role: dict[int, list[BuyerCode]],
+        note: str | None = None,
+    ) -> str:
+        """Render the standard role-based config summary for a member."""
+        member_role_ids = {int(role.id) for role in member.roles}
+
+        def _slot(role_id: int) -> str:
+            if role_id not in member_role_ids:
+                return "Open ticket to purchase the config."
+            rows = code_by_role.get(role_id, [])
+            if not rows:
+                return "⚠️ Not configured yet."
+            ordered = sorted(rows, key=lambda item: item.color.lower())
+            lines: list[str] = []
+            for row in ordered:
+                lines.append(f"- **{row.color}** • Version `{row.version}`\n  Code: ||{row.code}||")
+            return "\n".join(lines)
+
+        note_prefix = f"## NOTE\n{note.strip()}\n\n" if note is not None and note.strip() else ""
+        return (
+            f"{note_prefix}"
+            "## LATEST CONFIG ACCESS\n"
+            f"{member.mention}\n\n"
+            "Your currently available config codes are listed below "
+            "based on your assigned roles.\n\n"
+            "### Semi-Legit • Main Branch\n"
+            f"{_slot(SEMI_LEGIT_MAIN_ROLE_ID)}\n\n"
+            "### Semi-Legit • Visuals Add-On\n"
+            f"{_slot(SEMI_LEGIT_VISUAL_ROLE_ID)}\n\n"
+            "### Semi-Rage • Main Branch\n"
+            f"{_slot(SEMI_RAGE_MAIN_ROLE_ID)}\n\n"
+            "### Semi-Rage • Visuals Add-On\n"
+            f"{_slot(SEMI_RAGE_VISUAL_ROLE_ID)}"
         )
 
     @staticmethod
