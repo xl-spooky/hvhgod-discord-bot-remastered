@@ -11,7 +11,10 @@ BUYER_WELCOME_TEMPLATE = (
 )
 
 CONFIG_CODE_TEMPLATE = (
-    "## {branch}\\nColor: **{color}**\\nVersion: **{version}**\\nCode:\\n```\\n{code}\\n```"
+    "## {bundle} • {branch}\\n"
+    "Color: **{color}**\\n"
+    "Version: **{version}**\\n"
+    "Code:\\n```\\n{code}\\n```"
 )
 
 
@@ -23,9 +26,17 @@ def render_buyer_welcome(*, user_mention: str, vac_tips_channel_mention: str) ->
     )
 
 
-def render_config_code_update(*, branch: str, color: str, code: str, version: str) -> str:
+def render_config_code_update(
+    *,
+    bundle: str,
+    branch: str,
+    color: str,
+    code: str,
+    version: str,
+) -> str:
     """Return a formatted config code payload for buyer config threads."""
     return CONFIG_CODE_TEMPLATE.format(
+        bundle=bundle,
         branch=branch,
         color=color,
         code=code,

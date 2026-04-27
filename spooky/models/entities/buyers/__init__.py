@@ -1,3 +1,3 @@
-from .models import BuyerChannel
+from .models import BuyerChannel, BuyerCode
 
-__all__ = ["BuyerChannel"]
+__all__ = ["BuyerChannel", "BuyerCode"]

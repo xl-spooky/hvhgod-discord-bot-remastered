@@ -15,15 +15,20 @@ from spooky.ext.constants import (
     DEFAULT_BUYER_CATEGORY_ID,
     OWNER_ID,
     REQUIRED_BUYER_ROLE_ID,
+    SEMI_LEGIT_MAIN_ROLE_ID,
+    SEMI_LEGIT_VISUAL_ROLE_ID,
+    SEMI_RAGE_MAIN_ROLE_ID,
+    SEMI_RAGE_VISUAL_ROLE_ID,
     VAC_TIPS_CHANNEL_ID,
 )
 from spooky.ext.message import render_buyer_welcome, render_config_code_update
-from spooky.models.entities.buyers import BuyerChannel
+from spooky.models.entities.buyers import BuyerChannel, BuyerCode
 from spooky.models.entities.permissions import AppPermission, UserPermissionOverride
 from sqlalchemy import delete, select
 from thefuzz import process
 
 PermissionAction = Literal["Add", "Remove"]
+CodeBundleOption = Literal["Semi-Legit", "Semi-Rage"]
 CodeBranchOption = Literal["Main Branch", "Visual"]
 CodeColorOption = Literal["Pink", "Purple", "Yellow", "Blue", "Red", "Black & White"]
 FUZZY_PERMISSION_SCORE_THRESHOLD = 65
@@ -169,6 +174,19 @@ class DevtoolCommands(commands.Cog):
             )
             return
 
+        async with get_session() as session:
+            existing = (
+                await session.execute(
+                    select(BuyerChannel.id).where(BuyerChannel.user_id == int(member.id)).limit(1)
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                await inter.response.send_message(
+                    embed=status_card(False, f"{member.mention} already has a buyer channel."),
+                    ephemeral=True,
+                )
+                return
+
         everyone_overwrite = disnake.PermissionOverwrite(view_channel=False)
         member_overwrite = self._buyer_member_overwrite()
         target_category = category
@@ -287,6 +305,7 @@ class DevtoolCommands(commands.Cog):
     async def devtool_setcode(
         self,
         inter: disnake.AppCmdInter[Spooky],
+        bundle: CodeBundleOption,
         branch: CodeBranchOption,
         color: CodeColorOption,
         code: str,
@@ -301,14 +320,48 @@ class DevtoolCommands(commands.Cog):
             return
 
         payload = render_config_code_update(
+            bundle=bundle,
             branch=branch,
             color=color,
             code=code,
             version=version,
         )
 
+        role_id = self._role_for_code_slot(bundle=bundle, branch=branch)
+        if role_id is None:
+            await inter.response.send_message(
+                embed=status_card(False, "Unable to resolve code slot role."),
+                ephemeral=True,
+            )
+            return
+
         async with get_session() as session:
+            existing_code = (
+                await session.execute(
+                    select(BuyerCode).where(BuyerCode.role_id == int(role_id)).limit(1)
+                )
+            ).scalar_one_or_none()
+
+            if existing_code is None:
+                session.add(
+                    BuyerCode(
+                        role_id=int(role_id),
+                        bundle=bundle,
+                        branch=branch,
+                        color=color,
+                        code=code,
+                        version=version,
+                    )
+                )
+            else:
+                existing_code.bundle = bundle
+                existing_code.branch = branch
+                existing_code.color = color
+                existing_code.code = code
+                existing_code.version = version
+
             rows = (await session.execute(select(BuyerChannel.config_thread_id))).scalars().all()
+            await session.flush()
 
         if not rows:
             await inter.response.send_message(
@@ -331,6 +384,70 @@ class DevtoolCommands(commands.Cog):
                 True,
                 f"Published code update to {delivered}/{len(rows)} CONFIG CODES threads.",
             ),
+            ephemeral=True,
+        )
+
+    @devtool.sub_command(name="sendmembercode")
+    async def devtool_sendmembercode(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        member: disnake.Member,
+    ) -> None:
+        """Send latest role-based config access summary for a selected member."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        member_role_ids = {int(role.id) for role in member.roles}
+        tracked_roles = {
+            SEMI_LEGIT_MAIN_ROLE_ID,
+            SEMI_LEGIT_VISUAL_ROLE_ID,
+            SEMI_RAGE_MAIN_ROLE_ID,
+            SEMI_RAGE_VISUAL_ROLE_ID,
+        }
+
+        async with get_session() as session:
+            code_rows = (
+                (
+                    await session.execute(
+                        select(BuyerCode).where(BuyerCode.role_id.in_(tracked_roles))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        code_by_role = {int(row.role_id): row for row in code_rows}
+
+        def _slot(role_id: int) -> str:
+            if role_id not in member_role_ids:
+                return "Not available."
+            row = code_by_role.get(role_id)
+            if row is None:
+                return "Not configured yet."
+            return f"{row.code}\\n({row.color})"
+
+        summary = (
+            "LATEST CONFIG ACCESS\\n"
+            f"{member.mention}\\n\\n"
+            "Your latest available config codes are listed below based on your current roles.\\n\\n"
+            "SEMI-LEGIT\\n"
+            "Main Branch:\\n\\n"
+            f"{_slot(SEMI_LEGIT_MAIN_ROLE_ID)}\\n\\n"
+            "Visuals Add-On:\\n\\n"
+            f"{_slot(SEMI_LEGIT_VISUAL_ROLE_ID)}\\n\\n"
+            "SEMI-RAGE\\n"
+            "Main Branch:\\n\\n"
+            f"{_slot(SEMI_RAGE_MAIN_ROLE_ID)}\\n\\n"
+            "Visuals Add-On:\\n\\n"
+            f"{_slot(SEMI_RAGE_VISUAL_ROLE_ID)}"
+        )
+
+        await inter.response.send_message(
+            embed=status_card(True, summary, ensure_period=False),
             ephemeral=True,
         )
 
@@ -370,6 +487,17 @@ class DevtoolCommands(commands.Cog):
             if isinstance(maybe_thread, disnake.Thread):
                 return maybe_thread
         return None
+
+    @staticmethod
+    def _role_for_code_slot(*, bundle: CodeBundleOption, branch: CodeBranchOption) -> int | None:
+        """Resolve the access role tied to a config bundle/branch slot."""
+        role_map: dict[tuple[CodeBundleOption, CodeBranchOption], int] = {
+            ("Semi-Legit", "Main Branch"): SEMI_LEGIT_MAIN_ROLE_ID,
+            ("Semi-Legit", "Visual"): SEMI_LEGIT_VISUAL_ROLE_ID,
+            ("Semi-Rage", "Main Branch"): SEMI_RAGE_MAIN_ROLE_ID,
+            ("Semi-Rage", "Visual"): SEMI_RAGE_VISUAL_ROLE_ID,
+        }
+        return role_map.get((bundle, branch))
 
     @devtool_permission.autocomplete("permission")
     async def permission_autocomplete(
