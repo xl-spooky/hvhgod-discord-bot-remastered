@@ -10,7 +10,8 @@ from spooky.bot import Spooky
 from spooky.core.checks import fakeperms_or_discordperm
 from spooky.db import get_session
 from spooky.ext.components.v2.card import status_card
-from spooky.ext.constants import OWNER_ID
+from spooky.ext.constants import OWNER_ID, VAC_TIPS_CHANNEL_ID
+from spooky.ext.message import render_buyer_welcome
 from spooky.models.entities.permissions import AppPermission, UserPermissionOverride
 from sqlalchemy import delete, select
 from thefuzz import process
@@ -121,6 +122,67 @@ class DevtoolCommands(commands.Cog):
 
         await inter.response.send_message(embed=status_card(True, message), ephemeral=True)
 
+    @devtool.sub_command(name="createbuyer")
+    async def devtool_createbuyer(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        member: disnake.Member,
+    ) -> None:
+        """Create a private buyer forum visible only to the selected member.
+
+        Parameters
+        ----------
+        member : disnake.Member
+            Member who should have access to the created buyer forum.
+        """
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        guild = inter.guild
+        if guild is None:
+            await inter.response.send_message(
+                embed=status_card(False, "This command can only be used in a guild."),
+                ephemeral=True,
+            )
+            return
+
+        everyone_overwrite = disnake.PermissionOverwrite(view_channel=False)
+        member_overwrite = self._buyer_member_overwrite()
+
+        forum_name = f"buyer-{member.display_name}".lower().replace(" ", "-")
+        forum = await guild.create_forum_channel(
+            name=forum_name[:100],
+            overwrites={
+                guild.default_role: everyone_overwrite,
+                member: member_overwrite,
+            },
+            reason=f"Buyer forum requested by {inter.author} for {member}",
+        )
+
+        vac_tips_channel = f"<#{VAC_TIPS_CHANNEL_ID}>"
+        welcome_message = render_buyer_welcome(
+            user_mention=member.mention,
+            vac_tips_channel_mention=vac_tips_channel,
+        )
+
+        await forum.create_thread(name="INTRODUCTION", content=welcome_message)
+        await forum.create_thread(
+            name="CONFIG CODES",
+            content="Config codes for this buyer will be posted in this thread.",
+        )
+
+        await inter.response.send_message(
+            embed=status_card(
+                True,
+                f"Created buyer forum {forum.mention} for {member.mention}",
+            ),
+            ephemeral=True,
+        )
+
     @staticmethod
     def _resolve_permission_name(raw: str) -> str | None:
         """Resolve user-entered text to an :class:`AppPermission` value via fuzzing."""
@@ -133,6 +195,19 @@ class DevtoolCommands(commands.Cog):
         if score < FUZZY_PERMISSION_SCORE_THRESHOLD:
             return None
         return best_match
+
+    @staticmethod
+    def _buyer_member_overwrite() -> disnake.PermissionOverwrite:
+        """Return strict member overwrite for buyer forums."""
+        overwrite_payload = {permission.value: False for permission in AppPermission}
+        overwrite = disnake.PermissionOverwrite(**overwrite_payload)
+        overwrite.view_channel = True
+        overwrite.send_messages_in_threads = True
+        overwrite.read_message_history = True
+        overwrite.send_messages = False
+        overwrite.create_public_threads = False
+        overwrite.create_private_threads = False
+        return overwrite
 
     @devtool_permission.autocomplete("permission")
     async def permission_autocomplete(
