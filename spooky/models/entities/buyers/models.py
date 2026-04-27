@@ -20,6 +20,7 @@ class BuyerChannel(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
     channel_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
+    config_thread_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

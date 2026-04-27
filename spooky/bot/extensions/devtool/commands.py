@@ -17,13 +17,15 @@ from spooky.ext.constants import (
     REQUIRED_BUYER_ROLE_ID,
     VAC_TIPS_CHANNEL_ID,
 )
-from spooky.ext.message import render_buyer_welcome
+from spooky.ext.message import render_buyer_welcome, render_config_code_update
 from spooky.models.entities.buyers import BuyerChannel
 from spooky.models.entities.permissions import AppPermission, UserPermissionOverride
 from sqlalchemy import delete, select
 from thefuzz import process
 
 PermissionAction = Literal["Add", "Remove"]
+CodeBranchOption = Literal["Main Branch", "Visual"]
+CodeColorOption = Literal["Pink", "Purple", "Yellow", "Blue", "Red", "Black & White"]
 FUZZY_PERMISSION_SCORE_THRESHOLD = 65
 MAX_PERMISSION_CHOICES = 25
 
@@ -192,16 +194,24 @@ class DevtoolCommands(commands.Cog):
         )
 
         await forum.create_thread(name="INTRODUCTION", content=welcome_message)
-        await forum.create_thread(
+        config_thread_result = await forum.create_thread(
             name="CONFIG CODES",
             content="Config codes for this buyer will be posted in this thread.",
         )
+        config_thread = self._extract_created_thread(config_thread_result)
+        if config_thread is None:
+            await inter.response.send_message(
+                embed=status_card(False, "Failed to resolve CONFIG CODES thread for persistence."),
+                ephemeral=True,
+            )
+            return
 
         async with get_session() as session:
             session.add(
                 BuyerChannel(
                     user_id=int(member.id),
                     channel_id=int(forum.id),
+                    config_thread_id=int(config_thread.id),
                 )
             )
             await session.flush()
@@ -273,6 +283,57 @@ class DevtoolCommands(commands.Cog):
             ephemeral=True,
         )
 
+    @devtool.sub_command(name="setcode")
+    async def devtool_setcode(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        branch: CodeBranchOption,
+        color: CodeColorOption,
+        code: str,
+        version: str,
+    ) -> None:
+        """Publish a code update to all persisted CONFIG CODES buyer threads."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        payload = render_config_code_update(
+            branch=branch,
+            color=color,
+            code=code,
+            version=version,
+        )
+
+        async with get_session() as session:
+            rows = (await session.execute(select(BuyerChannel.config_thread_id))).scalars().all()
+
+        if not rows:
+            await inter.response.send_message(
+                embed=status_card(False, "No buyer config threads are stored yet."),
+                ephemeral=True,
+            )
+            return
+
+        delivered = 0
+        for thread_id in rows:
+            thread = self.bot.get_channel(int(thread_id))
+            if not isinstance(thread, disnake.Thread):
+                continue
+            with suppress(Exception):
+                await thread.send(payload)
+                delivered += 1
+
+        await inter.response.send_message(
+            embed=status_card(
+                True,
+                f"Published code update to {delivered}/{len(rows)} CONFIG CODES threads.",
+            ),
+            ephemeral=True,
+        )
+
     @staticmethod
     def _resolve_permission_name(raw: str) -> str | None:
         """Resolve user-entered text to an :class:`AppPermission` value via fuzzing."""
@@ -298,6 +359,17 @@ class DevtoolCommands(commands.Cog):
         overwrite.create_public_threads = False
         overwrite.create_private_threads = False
         return overwrite
+
+    @staticmethod
+    def _extract_created_thread(result: object) -> disnake.Thread | None:
+        """Extract thread object from forum create_thread return payload."""
+        if isinstance(result, disnake.Thread):
+            return result
+        if isinstance(result, tuple) and result:
+            maybe_thread = result[0]
+            if isinstance(maybe_thread, disnake.Thread):
+                return maybe_thread
+        return None
 
     @devtool_permission.autocomplete("permission")
     async def permission_autocomplete(

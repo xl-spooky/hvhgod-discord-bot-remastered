@@ -10,6 +10,10 @@ BUYER_WELCOME_TEMPLATE = (
     "Your config information will be posted in the CONFIG CODES forum thread."
 )
 
+CONFIG_CODE_TEMPLATE = (
+    "## {branch}\\nColor: **{color}**\\nVersion: **{version}**\\nCode:\\n```\\n{code}\\n```"
+)
+
 
 def render_buyer_welcome(*, user_mention: str, vac_tips_channel_mention: str) -> str:
     """Return the buyer welcome message with runtime placeholders resolved."""
@@ -19,4 +23,19 @@ def render_buyer_welcome(*, user_mention: str, vac_tips_channel_mention: str) ->
     )
 
 
-__all__ = ["BUYER_WELCOME_TEMPLATE", "render_buyer_welcome"]
+def render_config_code_update(*, branch: str, color: str, code: str, version: str) -> str:
+    """Return a formatted config code payload for buyer config threads."""
+    return CONFIG_CODE_TEMPLATE.format(
+        branch=branch,
+        color=color,
+        code=code,
+        version=version,
+    )
+
+
+__all__ = [
+    "BUYER_WELCOME_TEMPLATE",
+    "CONFIG_CODE_TEMPLATE",
+    "render_buyer_welcome",
+    "render_config_code_update",
+]
