@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import suppress
 from typing import Literal
 
 import disnake
@@ -10,7 +11,12 @@ from spooky.bot import Spooky
 from spooky.core.checks import fakeperms_or_discordperm
 from spooky.db import get_session
 from spooky.ext.components.v2.card import status_card
-from spooky.ext.constants import OWNER_ID, REQUIRED_BUYER_ROLE_ID, VAC_TIPS_CHANNEL_ID
+from spooky.ext.constants import (
+    DEFAULT_BUYER_CATEGORY_ID,
+    OWNER_ID,
+    REQUIRED_BUYER_ROLE_ID,
+    VAC_TIPS_CHANNEL_ID,
+)
 from spooky.ext.message import render_buyer_welcome
 from spooky.models.entities.buyers import BuyerChannel
 from spooky.models.entities.permissions import AppPermission, UserPermissionOverride
@@ -46,7 +52,7 @@ class DevtoolCommands(commands.Cog):
     @fakeperms_or_discordperm(AppPermission.ADMINISTRATOR)
     async def devtool(self, inter: disnake.AppCmdInter[Spooky]) -> None:
         """Root command group for developer tooling."""
-        await inter.response.send_message("Choose a subcommand.", ephemeral=True)
+        del inter
 
     @devtool.sub_command(name="permission")
     async def devtool_permission(
@@ -128,6 +134,7 @@ class DevtoolCommands(commands.Cog):
         self,
         inter: disnake.AppCmdInter[Spooky],
         member: disnake.Member,
+        category: disnake.CategoryChannel | None = None,
     ) -> None:
         """Create a private buyer forum visible only to the selected member.
 
@@ -135,6 +142,8 @@ class DevtoolCommands(commands.Cog):
         ----------
         member : disnake.Member
             Member who should have access to the created buyer forum.
+        category : disnake.CategoryChannel | None, optional
+            Optional category override. Defaults to ``DEFAULT_BUYER_CATEGORY_ID``.
         """
         if inter.author.id != OWNER_ID:
             await inter.response.send_message(
@@ -160,10 +169,15 @@ class DevtoolCommands(commands.Cog):
 
         everyone_overwrite = disnake.PermissionOverwrite(view_channel=False)
         member_overwrite = self._buyer_member_overwrite()
+        target_category = category
+        if target_category is None:
+            resolved = guild.get_channel(DEFAULT_BUYER_CATEGORY_ID)
+            target_category = resolved if isinstance(resolved, disnake.CategoryChannel) else None
 
         forum_name = f"buyer-{member.display_name}".lower().replace(" ", "-")
         forum = await guild.create_forum_channel(
             name=forum_name[:100],
+            category=target_category,
             overwrites={
                 guild.default_role: everyone_overwrite,
                 member: member_overwrite,
@@ -196,6 +210,65 @@ class DevtoolCommands(commands.Cog):
             embed=status_card(
                 True,
                 f"Created buyer forum {forum.mention} for {member.mention}",
+            ),
+            ephemeral=True,
+        )
+
+    @devtool.sub_command(name="removebuyer")
+    async def devtool_removebuyer(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        member: disnake.Member,
+    ) -> None:
+        """Delete buyer forum channels and DB rows associated with a member."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        async with get_session() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(BuyerChannel).where(BuyerChannel.user_id == int(member.id))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+            if not rows:
+                await inter.response.send_message(
+                    embed=status_card(False, f"No buyer channels recorded for {member.mention}."),
+                    ephemeral=True,
+                )
+                return
+
+            deleted_channels = 0
+            for row in rows:
+                channel = self.bot.get_channel(int(row.channel_id))
+                if channel is None:
+                    continue
+                if not isinstance(channel, disnake.abc.GuildChannel | disnake.Thread):
+                    continue
+                with suppress(Exception):
+                    await channel.delete(reason=f"removebuyer requested for {member}")
+                    deleted_channels += 1
+
+            await session.execute(
+                delete(BuyerChannel).where(BuyerChannel.user_id == int(member.id))
+            )
+            await session.flush()
+
+        await inter.response.send_message(
+            embed=status_card(
+                True,
+                (
+                    f"Removed buyer records for {member.mention}. "
+                    f"Deleted channels: {deleted_channels}/{len(rows)}"
+                ),
             ),
             ephemeral=True,
         )
