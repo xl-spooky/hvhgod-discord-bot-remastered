@@ -17,6 +17,7 @@ from thefuzz import process
 
 PermissionAction = Literal["Add", "Remove"]
 FUZZY_PERMISSION_SCORE_THRESHOLD = 65
+MAX_PERMISSION_CHOICES = 25
 
 __all__ = ["DevtoolCommands"]
 
@@ -133,3 +134,30 @@ class DevtoolCommands(commands.Cog):
         if score < FUZZY_PERMISSION_SCORE_THRESHOLD:
             return None
         return best_match
+
+    @devtool_permission.autocomplete("permission")
+    async def permission_autocomplete(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        user_input: str,
+    ) -> list[str]:
+        """Return up to 25 fuzzy-matched permission choices for slash autocomplete."""
+        del inter
+        candidates = [permission.value for permission in AppPermission]
+        if not user_input.strip():
+            return candidates[:MAX_PERMISSION_CHOICES]
+
+        ranked = process.extract(user_input, candidates, limit=MAX_PERMISSION_CHOICES)
+        seen: set[str] = set()
+        results: list[str] = []
+        for choice, score in ranked:
+            if score < FUZZY_PERMISSION_SCORE_THRESHOLD:
+                continue
+            if choice in seen:
+                continue
+            seen.add(choice)
+            results.append(choice)
+
+        if results:
+            return results
+        return candidates[:MAX_PERMISSION_CHOICES]
