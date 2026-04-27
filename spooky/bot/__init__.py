@@ -44,21 +44,14 @@ import os
 import pkgutil
 from collections import abc
 from traceback import format_exception
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 
 import disnake
 from disnake.ext import commands
 from loguru import logger
-from spooky.ext.patches import apply_container_view_store_patch
-
-if TYPE_CHECKING:
-    from spooky.premium.enums import PremiumProduct
 
 from .context import SpookyContext
 from .prefix import DEFAULT_PREFIX, get_effective_prefix
-
-# Ensure our disnake view-store patch is installed early.
-apply_container_view_store_patch()
 
 __all__ = ["Spooky", "__author__", "__version__", "_walk_modules"]
 
@@ -86,9 +79,6 @@ class Spooky(commands.Bot):
     - The connection delay can be tuned per instance to accommodate deployment needs.
     """
 
-    cached_skus: dict[int, disnake.SKU]
-    sku_to_product: dict[int, PremiumProduct]
-    product_to_sku: dict[PremiumProduct, int]
     default_prefix: str = DEFAULT_PREFIX
     connection_delay: float = 15.0
     _connected: bool = False
