@@ -264,6 +264,8 @@ class DevtoolCommands(commands.Cog):
             )
             return
 
+        await inter.response.defer(ephemeral=True)
+
         async with get_session() as session:
             rows = (
                 (
@@ -276,7 +278,7 @@ class DevtoolCommands(commands.Cog):
             )
 
             if not rows:
-                await inter.response.send_message(
+                await inter.followup.send(
                     embed=status_card(False, f"No buyer channels recorded for {member.mention}."),
                     ephemeral=True,
                 )
@@ -298,7 +300,7 @@ class DevtoolCommands(commands.Cog):
             )
             await session.flush()
 
-        await inter.response.send_message(
+        await inter.followup.send(
             embed=status_card(
                 True,
                 (
@@ -346,7 +348,9 @@ class DevtoolCommands(commands.Cog):
         async with get_session() as session:
             existing_code = (
                 await session.execute(
-                    select(BuyerCode).where(BuyerCode.role_id == int(role_id)).limit(1)
+                    select(BuyerCode)
+                    .where(BuyerCode.role_id == int(role_id), BuyerCode.color == color)
+                    .limit(1)
                 )
             ).scalar_one_or_none()
 
@@ -432,19 +436,21 @@ class DevtoolCommands(commands.Cog):
                 )
             ).scalar_one_or_none()
 
-        code_by_role = {int(row.role_id): row for row in code_rows}
+        code_by_role: dict[int, list[BuyerCode]] = {}
+        for row in code_rows:
+            code_by_role.setdefault(int(row.role_id), []).append(row)
 
         def _slot(role_id: int) -> str:
             if role_id not in member_role_ids:
                 return "Open ticket to purchase the config."
-            row = code_by_role.get(role_id)
-            if row is None:
+            rows = code_by_role.get(role_id, [])
+            if not rows:
                 return "⚠️ Not configured yet."
-            return (
-                f"✅ **Version:** `{row.version}`\n"
-                f"✅ **Color:** {row.color}\n"
-                f"✅ **Code:** ||{row.code}||"
-            )
+            ordered = sorted(rows, key=lambda item: item.color.lower())
+            lines: list[str] = []
+            for row in ordered:
+                lines.append(f"- **{row.color}** • Version `{row.version}`\n  Code: ||{row.code}||")
+            return "\n".join(lines)
 
         summary = (
             "## LATEST CONFIG ACCESS\n"

@@ -32,7 +32,7 @@ class BuyerCode(Base):
     """Store latest code payload per access role."""
 
     __tablename__ = "buyer_codes"
-    __table_args__ = (UniqueConstraint("role_id"),)
+    __table_args__ = (UniqueConstraint("role_id", "color"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     role_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
