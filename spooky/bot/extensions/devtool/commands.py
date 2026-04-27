@@ -212,6 +212,14 @@ class DevtoolCommands(commands.Cog):
         )
 
         await forum.create_thread(name="INTRODUCTION", content=welcome_message)
+        await forum.create_thread(
+            name="CONTACT US",
+            content=(
+                f"{member.mention}\n"
+                "Use this thread anytime if you need direct help, "
+                "have account questions, or need support."
+            ),
+        )
         config_thread_result = await forum.create_thread(
             name="CONFIG CODES",
             content="Config codes for this buyer will be posted in this thread.",
@@ -360,23 +368,20 @@ class DevtoolCommands(commands.Cog):
                 existing_code.code = code
                 existing_code.version = version
 
-            rows = (await session.execute(select(BuyerChannel.config_thread_id))).scalars().all()
+            rows = (
+                (await session.execute(select(BuyerChannel.user_id, BuyerChannel.config_thread_id)))
+                .tuples()
+                .all()
+            )
             await session.flush()
 
-        if not rows:
-            await inter.response.send_message(
-                embed=status_card(False, "No buyer config threads are stored yet."),
-                ephemeral=True,
-            )
-            return
-
         delivered = 0
-        for thread_id in rows:
+        for user_id, thread_id in rows:
             thread = self.bot.get_channel(int(thread_id))
             if not isinstance(thread, disnake.Thread):
                 continue
             with suppress(Exception):
-                await thread.send(payload)
+                await thread.send(f"<@{int(user_id)}>\n{payload}")
                 delivered += 1
 
         await inter.response.send_message(
@@ -424,25 +429,28 @@ class DevtoolCommands(commands.Cog):
 
         def _slot(role_id: int) -> str:
             if role_id not in member_role_ids:
-                return "Not available."
+                return "❌ Not available (missing role)."
             row = code_by_role.get(role_id)
             if row is None:
-                return "Not configured yet."
-            return f"{row.code}\\n({row.color})"
+                return "⚠️ Not configured yet."
+            return (
+                f"✅ **Version:** `{row.version}`\n"
+                f"✅ **Color:** {row.color}\n"
+                f"✅ **Code:**\n```txt\n{row.code}\n```"
+            )
 
         summary = (
-            "LATEST CONFIG ACCESS\\n"
-            f"{member.mention}\\n\\n"
-            "Your latest available config codes are listed below based on your current roles.\\n\\n"
-            "SEMI-LEGIT\\n"
-            "Main Branch:\\n\\n"
-            f"{_slot(SEMI_LEGIT_MAIN_ROLE_ID)}\\n\\n"
-            "Visuals Add-On:\\n\\n"
-            f"{_slot(SEMI_LEGIT_VISUAL_ROLE_ID)}\\n\\n"
-            "SEMI-RAGE\\n"
-            "Main Branch:\\n\\n"
-            f"{_slot(SEMI_RAGE_MAIN_ROLE_ID)}\\n\\n"
-            "Visuals Add-On:\\n\\n"
+            "## LATEST CONFIG ACCESS\n"
+            f"{member.mention}\n\n"
+            "Your currently available config codes are listed below "
+            "based on your assigned roles.\n\n"
+            "### Semi-Legit • Main Branch\n"
+            f"{_slot(SEMI_LEGIT_MAIN_ROLE_ID)}\n\n"
+            "### Semi-Legit • Visuals Add-On\n"
+            f"{_slot(SEMI_LEGIT_VISUAL_ROLE_ID)}\n\n"
+            "### Semi-Rage • Main Branch\n"
+            f"{_slot(SEMI_RAGE_MAIN_ROLE_ID)}\n\n"
+            "### Semi-Rage • Visuals Add-On\n"
             f"{_slot(SEMI_RAGE_VISUAL_ROLE_ID)}"
         )
 

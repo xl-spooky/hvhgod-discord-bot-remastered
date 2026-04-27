@@ -7,14 +7,16 @@ BUYER_WELCOME_TEMPLATE = (
     "\n"
     "This is your private buyer space — glad to have you here.\n"
     "Please check {vac_tips_channel} for vac tips and safety using these configs.\n"
-    "Your config information will be posted in the CONFIG CODES forum thread."
+    "Your config information will be posted in the CONFIG CODES forum thread.\n"
+    "For direct support, open the CONTACT US thread and chat with us there."
 )
 
 CONFIG_CODE_TEMPLATE = (
-    "## {bundle} • {branch}\\n"
-    "Color: **{color}**\\n"
-    "Version: **{version}**\\n"
-    "Code:\\n```\\n{code}\\n```"
+    "## 🔐 {bundle} • {branch}\n"
+    "- **Color:** {color}\n"
+    "- **Version:** `{version}`\n"
+    "- **Code:**\n"
+    "```txt\n{code}\n```"
 )
 
 
