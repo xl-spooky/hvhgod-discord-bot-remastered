@@ -1,0 +1,118 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "spooky"
+version = "1.0.0"
+description = "Spooky Bot"
+authors = ["Spooky <spkydevelopment@gmail.com>"]
+license = "AGPL v3"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+aiohttp = { extras = ["speedups"], version = "^3.9" }
+# disnake v2.11.0
+disnake = "2.11.0"
+dynaconf = "^3.2"
+loguru = "^0.7"
+python-dotenv = "^1.0.1"
+sqlalchemy = { extras = ["asyncio"], version = "^2.0.44" }
+alembic = "^1.17.0"
+asyncpg = "^0.30.0"
+redis = { extras = ["hiredis"], version = "^5.0.4" }
+thefuzz = "^0.22.1"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.12.0"
+pre-commit = "^4.0.1"
+pyright = "^1.1.407"
+
+[tool.ruff]
+src = ["spooky"]
+line-length = 100
+target-version = "py311"
+unsafe-fixes = true
+extend-exclude = ["migrations/**"]
+
+[tool.ruff.lint]
+preview = true
+explicit-preview-rules = true
+
+select = [
+    "I",   # isort
+    "E",
+    "F",
+    "A",   # shadowing built-ins
+    "RUF",
+    "UP",
+    "PL",  # pylint
+
+    "D",    # docstrings
+    "D212",
+
+    "Q",   # consistent string quotes
+    "FLY", # static joins
+    "ISC", # string concatenation
+
+    "SIM", # simplifiable logic
+    "C4",  # simplifiable comprehensions
+    "PIE", # misc
+
+    "G",   # avoid formatting in logging
+    "LOG", # logging stuff
+
+    "TRY", # try - except pitfalls
+    "RSE", # skip parens on empty exceptions
+
+    "ANN",   # annotations
+    "ASYNC", # blocking calls in async context
+    "TC004", # runtime use of TYPE_CHECKING imports (remapped)
+    "TC005", # empty TYPE_CHECKING (remapped)
+    "TC010",
+    "FURB",
+    "PTH",   # pathlib > os.path / open
+    "ERA",   # commented out code
+
+    # preview
+    "RUF022", # sort __all__
+]
+ignore = [
+    "ANN401", # Any
+    "TRY003", # messages in exceptions
+    "PLR09",  # parameter, expression counts
+    "D1",     # don't require docstrings
+]
+fixable = ["ALL"]
+
+[tool.ruff.format]
+# Use the project line-length for formatter wrapping as well
+quote-style = "double"
+indent-style = "space"
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+split-on-trailing-comma = false
+
+[tool.ruff.lint.flake8-builtins]
+builtins-ignorelist = ["id", "format", "input"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+
+[tool.pyright]
+pythonVersion = "3.11"
+include = ["spooky"]
+extraPaths = ["typings"]
+stubPath = "typings"
+typeCheckingMode = "strict"
+exclude = [
+]
+
+reportMissingTypeStubs = false
+reportUnknownVariableType = false
+reportUnknownMemberType = false
+
+reportIncompatibleMethodOverride = false

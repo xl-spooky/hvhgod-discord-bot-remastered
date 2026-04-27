@@ -1,0 +1,35 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-toml
+      - id: check-yaml
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Align with Ruff 0.12.x
+    rev: v0.12.11
+    hooks:
+      - id: ruff
+        args: ["--fix"]
+      - id: ruff-format
+
+  - repo: https://github.com/RobertCraigie/pyright-python
+    rev: v1.1.407
+    hooks:
+      - id: pyright
+        args: ["spooky"]
+        pass_filenames: false
+        additional_dependencies:
+          # Ensure Pyright's isolated environment has our runtime dependencies available for import resolution
+          - "disnake==2.11.0"
+          - "loguru==0.7.3"
+          - "sqlalchemy[asyncio]==2.0.44"
+          - "redis[hiredis]==5.3.1"
+          - "asyncpg==0.30.0"
+          - "aiohttp[speedups]==3.13.2"
+          - "dynaconf==3.2.12"
+          - "python-dotenv==1.2.1"
+          - "thefuzz==0.22.1"

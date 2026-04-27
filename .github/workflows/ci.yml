@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [ main, master ]
+
+permissions:
+  contents: write
+
+jobs:
+  pre-commit:
+    name: Lint (pre-commit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # We'll push fixes back using GITHUB_TOKEN later
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run pre-commit (autofix)
+        id: run_precommit
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --hook-stage=manual
+        # pre-commit returns non-zero if it made changes; allow continuing to commit them
+        continue-on-error: true
+
+      - name: Commit pre-commit fixes (push events)
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # restore credentials for pushing with the GitHub token
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git add -A
+          git commit -m "chore(ci): apply pre-commit autofixes"
+          git push origin "HEAD:${GITHUB_REF_NAME:-${GITHUB_REF#refs/*/}}"
+
+      - name: Verify pre-commit (no changes remain)
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --hook-stage=manual

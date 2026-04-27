@@ -1,0 +1,84 @@
+services:
+  redis:
+    image: redis:7
+    restart: always
+    ports:
+      - 6379:6379
+
+  db:
+    image: postgres
+    restart: always
+    environment:
+      # Static defaults so DB works without external env
+      POSTGRES_DB: spookydb
+      POSTGRES_USER: spooky
+      POSTGRES_PASSWORD: spooky
+      PGDATA: /var/lib/postgresql/pgdata
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/pgdata:z
+    ports:
+      - 5432:5432
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  bot:
+    build:
+      dockerfile: ./Dockerfile
+      context: .
+      args:
+        GIT_REVISION: ${GIT_REVISION:-dev}
+
+    ports:
+      - 5000:5000
+    env_file:
+      - path: .env
+        required: true
+      - path: docker.env
+        required: false
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      # Point ORM/Redis to the dockerized services by default
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: spooky
+      DB_PASS: spooky
+      DB_NAME: spookydb
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+
+    develop:
+      watch:
+        - path: spooky/
+          action: sync+restart
+          target: /app/spooky
+          ignore:
+            - ./.venv
+        - path: pyproject.toml
+          action: rebuild
+
+  migrate:
+    build:
+      dockerfile: ./Dockerfile
+      context: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      # Use a virtualenv outside /app so the host bind mount (.venv from Windows) doesn't conflict
+      POETRY_VIRTUALENVS_IN_PROJECT: "false"
+      POETRY_VIRTUALENVS_PATH: "/opt/poetry/venvs"
+      # Database connection to the compose db service
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: spooky
+      DB_PASS: spooky
+      DB_NAME: spookydb
+    volumes:
+      # Mount the project so generated files (migrations, alembic.ini) persist on host
+      - ./:/app
+    command: /bin/sh -lc "poetry install --no-root && ./scripts/migrate.sh"

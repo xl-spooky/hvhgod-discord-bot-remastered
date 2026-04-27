@@ -1,0 +1,36 @@
+[emojis]
+bool_true = "<:Spooky_Bool_True:1445684358836125818>"
+bool_false = "<:Spooky_Bool_False:1445684357288165446>"
+
+checkmark = "<:Spooky_Checkmark:1445684361616818266>"
+error = "<:Spooky_Error:1445684365941014649>"
+warning = "<:Spooky_Warning:1445684386136850432>"
+
+settings = "<:Spooky_Settings:1445684381497819166>"
+permissions = "<:Spooky_Permissions:1445684377060249692>"
+
+page_forward = "<:Spooky_Forward:1445684370533912657>"
+page_fast_forward = "<:Spooky_Fast_Foward:1445684367321075833>"
+page_return = "<:Spooky_Return:1445684380302442610>"
+page_fast_return = "<:Spooky_Fast_Return:1445684369254649951>"
+home = "<:Spooky_Home:1445684371834011731>"
+
+target = "<:Spooky_Target:1445684384911986832>"
+world = "<:Spooky_World:1445684387424501760>"
+no_world = "<:Spooky_No_World:1445684375374270525>"
+
+chatbox = "<:Spooky_Chatbox:1445684360291549334>"
+edited_chatbox = "<:Spooky_Edited_Chatbox:1445684363982405744>"
+sticker = "<:Spooky_Sticker:1445684383435456614>"
+media = "<:Spooky_Media:1445684372920340512>"
+document = "<:Spooky_Document:1445684362845618287>"
+
+reply = "<:Spooky_Reply:1445684378746224824>"
+member = "<:Spooky_Member:1445684374220836937>"
+hammer = "<:Spooky_Hammer:1445710708909015083>"
+owner = "<:Spooky_Owner:1447501115410223204>"
+channel = "<:Spooky_Channel:1445710692811538566>"
+bolt = "<:Spooky_Bolt:1448094750199517274>"
+hourglass = "<:Spooky_Hourglass:1445714955939741863>"
+time = "<:Spooky_Time:1445714940471148634>"
+info = "<:Spooky_Info:1445738247648051233>"

@@ -1,0 +1,58 @@
+[messages]
+
+# Moderation message templates
+#
+# Common placeholders available in most messages:
+# {user}         - target user's display name (e.g., "SomeUser#1234")
+# {user_id}      - target user's ID
+# {moderator}    - moderator's display name
+# {moderator_id} - moderator's ID
+# {guild}        - guild/server name
+# {channel}      - channel mention or name
+# {reason}       - reason string (use "No reason provided" if empty)
+# {duration}     - humanized duration (e.g., "10m", "2h", "3d")
+# {case_id}      - case or audit ID if you track cases
+# {count}        - number of messages, items, etc.
+# {timestamp}    - ISO timestamp or formatted datetime
+
+[messages.exceptions]
+
+# A generic end-user facing error message for moderation commands.
+common = "Something went wrong while processing your request. Please try again later. If this persists, contact a moderator."
+
+# Centralized placeholder registry and core command templates
+[messages.placeholders]
+common = [
+    "user",
+    "user_id",
+    "moderator",
+    "moderator_id",
+    "guild",
+    "channel",
+    "reason",
+    "duration",
+    "case_id",
+    "timestamp",
+]
+
+[messages.defaults]
+no_reason = "No reason provided."
+
+[messages.errors]
+# Error messages shown to end users for common failures
+owner_only = "This command is restricted to the bot owner"
+disabled_command = "This command is currently disabled"
+no_private_message = "This command cannot be used in Direct Messages"
+nsfw_required = "This command can only be used in NSFW channels"
+cooldown = "Command is on cooldown for {seconds} seconds per {bucket}"
+max_concurrency = "This command is already running; limit is {number} per {scope}"
+forbidden = "I don't have permission to do that here"
+http_exception = "A network error occurred while executing the command. Please try again"
+generic = "{message}"
+missing_required_argument = "You're missing required arguments. Usage: `{usage}`"
+
+[messages.telemetry]
+# Titles and labels for telemetry embeds and messages
+details_title = "Details"
+entity_resolution_title = "Entity resolution failed: {entity}"
+entity_resolution_desc = "Failed to resolve {entity}: {identifiers}"

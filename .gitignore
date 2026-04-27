@@ -1,0 +1,32 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments
+venv/
+.venv
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ignore dynaconf secret files
+.secrets.*
+
+# Database
+*.sqlite3
+
+# Pycharm
+/.idea
+
+# Settings
+/.env
+
+# Database
+/data/*
+
+
+docker.env
+CON
