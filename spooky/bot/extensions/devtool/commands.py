@@ -188,6 +188,8 @@ class DevtoolCommands(commands.Cog):
                 )
                 return
 
+        await inter.response.defer(ephemeral=True)
+
         everyone_overwrite = disnake.PermissionOverwrite(view_channel=False)
         member_overwrite = self._buyer_member_overwrite()
         target_category = category
@@ -227,7 +229,7 @@ class DevtoolCommands(commands.Cog):
         )
         config_thread = self._extract_created_thread(config_thread_result)
         if config_thread is None:
-            await inter.response.send_message(
+            await inter.followup.send(
                 embed=status_card(False, "Failed to resolve CONFIG CODES thread for persistence."),
                 ephemeral=True,
             )
@@ -243,7 +245,7 @@ class DevtoolCommands(commands.Cog):
             )
             await session.flush()
 
-        await inter.response.send_message(
+        await inter.followup.send(
             embed=status_card(
                 True,
                 f"Created buyer forum {forum.mention} for {member.mention}",
