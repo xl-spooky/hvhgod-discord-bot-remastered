@@ -429,14 +429,14 @@ class DevtoolCommands(commands.Cog):
 
         def _slot(role_id: int) -> str:
             if role_id not in member_role_ids:
-                return "❌ Not available (missing role)."
+                return "Open ticket to purchase the config."
             row = code_by_role.get(role_id)
             if row is None:
                 return "⚠️ Not configured yet."
             return (
                 f"✅ **Version:** `{row.version}`\n"
                 f"✅ **Color:** {row.color}\n"
-                f"✅ **Code:**\n```txt\n{row.code}\n```"
+                f"✅ **Code:** ||{row.code}||"
             )
 
         summary = (

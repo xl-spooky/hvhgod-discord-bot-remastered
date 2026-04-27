@@ -15,8 +15,7 @@ CONFIG_CODE_TEMPLATE = (
     "## 🔐 {bundle} • {branch}\n"
     "- **Color:** {color}\n"
     "- **Version:** `{version}`\n"
-    "- **Code:**\n"
-    "```txt\n{code}\n```"
+    "- **Code:** ||{code}||"
 )
 
 
