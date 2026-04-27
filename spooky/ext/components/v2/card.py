@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import disnake
+from spooky.core import colors
 
 
 def status_card(
@@ -27,11 +28,11 @@ def status_card(
         content = f"{content}."
 
     if success is True:
-        color = disnake.Color.green()
+        color = disnake.Color(int(colors.green))
     elif success is False:
-        color = disnake.Color.red()
+        color = disnake.Color(int(colors.red))
     else:
-        color = disnake.Color.orange()
+        color = disnake.Color(int(colors.yellow))
 
     return disnake.Embed(description=content, color=color)
 

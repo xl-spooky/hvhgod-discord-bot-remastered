@@ -34,7 +34,6 @@ class DevtoolCommands(commands.Cog):
 
     @commands.slash_command(
         name="devtool",
-        dm_permission=False,
         default_member_permissions=disnake.Permissions(administrator=True),
         extras={
             "category": "Developer",
