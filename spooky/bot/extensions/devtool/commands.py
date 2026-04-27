@@ -10,8 +10,9 @@ from spooky.bot import Spooky
 from spooky.core.checks import fakeperms_or_discordperm
 from spooky.db import get_session
 from spooky.ext.components.v2.card import status_card
-from spooky.ext.constants import OWNER_ID, VAC_TIPS_CHANNEL_ID
+from spooky.ext.constants import OWNER_ID, REQUIRED_BUYER_ROLE_ID, VAC_TIPS_CHANNEL_ID
 from spooky.ext.message import render_buyer_welcome
+from spooky.models.entities.buyers import BuyerChannel
 from spooky.models.entities.permissions import AppPermission, UserPermissionOverride
 from sqlalchemy import delete, select
 from thefuzz import process
@@ -150,6 +151,13 @@ class DevtoolCommands(commands.Cog):
             )
             return
 
+        if not any(role.id == REQUIRED_BUYER_ROLE_ID for role in member.roles):
+            await inter.response.send_message(
+                embed=status_card(False, f"{member.mention} is missing the required buyer role."),
+                ephemeral=True,
+            )
+            return
+
         everyone_overwrite = disnake.PermissionOverwrite(view_channel=False)
         member_overwrite = self._buyer_member_overwrite()
 
@@ -174,6 +182,15 @@ class DevtoolCommands(commands.Cog):
             name="CONFIG CODES",
             content="Config codes for this buyer will be posted in this thread.",
         )
+
+        async with get_session() as session:
+            session.add(
+                BuyerChannel(
+                    user_id=int(member.id),
+                    channel_id=int(forum.id),
+                )
+            )
+            await session.flush()
 
         await inter.response.send_message(
             embed=status_card(

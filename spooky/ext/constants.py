@@ -6,4 +6,7 @@ OWNER_ID = 404264989147529217
 VAC_TIPS_CHANNEL_ID = 1497851388829499432
 """Channel that contains VAC tips and safety guidance."""
 
-__all__ = ["OWNER_ID", "VAC_TIPS_CHANNEL_ID"]
+REQUIRED_BUYER_ROLE_ID = 1463704601399136259
+"""Role required before creating a buyer forum for a member."""
+
+__all__ = ["OWNER_ID", "REQUIRED_BUYER_ROLE_ID", "VAC_TIPS_CHANNEL_ID"]
