@@ -49,9 +49,6 @@ from spooky.bot.context import SpookyContext
 from spooky.bot.prefix import DEFAULT_PREFIX, refresh_guild_prefix, refresh_user_prefix
 from spooky.core.exceptions import MissingSubcommandError
 from spooky.db import get_session
-from spooky.ext.components.command_gate import require_command_enabled
-from spooky.ext.components.permissions import require_app_permissions
-from spooky.models.entities.permissions import AppPermission
 
 from .utils import (
     build_status_embed,
@@ -92,7 +89,6 @@ class PrefixCommands(commands.Cog):
             "help_topics": ("prefix", "prefix commands"),
         },
     )
-    @require_command_enabled()
     async def prefix_group(self, ctx: SpookyContext) -> None:
         """Handle invocations of the base prefix command.
 
@@ -108,7 +104,6 @@ class PrefixCommands(commands.Cog):
     @prefix_group.command(
         name="user", extras={"category": "Configuration", "example": ",prefix user !"}
     )
-    @require_command_enabled()
     async def prefix_user(self, ctx: SpookyContext, prefix: str | None = None) -> None:
         """Manage the invoking user's custom prefix.
 
@@ -164,8 +159,7 @@ class PrefixCommands(commands.Cog):
             "example": ",prefix guild ;",
         },
     )
-    @require_app_permissions(AppPermission.MANAGE_GUILD)
-    @require_command_enabled()
+    @commands.has_guild_permissions(manage_guild=True)
     async def prefix_guild(self, ctx: SpookyContext, prefix: str | None = None) -> None:
         """Manage the current guild's custom prefix.
 
@@ -211,7 +205,6 @@ class PrefixCommands(commands.Cog):
     @prefix_group.command(
         name="status", extras={"category": "Configuration", "example": ",prefix status"}
     )
-    @require_command_enabled()
     async def prefix_status(self, ctx: SpookyContext) -> None:
         """Display prefix information for the current context."""
         default_prefix = getattr(self.bot, "default_prefix", DEFAULT_PREFIX)
