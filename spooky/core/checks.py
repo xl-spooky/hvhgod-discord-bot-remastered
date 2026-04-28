@@ -180,6 +180,13 @@ def fakeperms_or_discordperm(permission: AppPermission | str) -> Callable[[T], T
         guild = getattr(ctx, "guild", None)
         actor = getattr(ctx, "author", None) or getattr(ctx, "user", None)
         if guild is None or actor is None:
+            error_sender = getattr(ctx, "error", None)
+            if callable(error_sender):
+                with suppress(Exception):
+                    await cast(Any, error_sender)(
+                        "This command can only be used inside a guild.",
+                        ensure_period=False,
+                    )
             return False
 
         guild_permissions = getattr(actor, "guild_permissions", None)
@@ -187,6 +194,13 @@ def fakeperms_or_discordperm(permission: AppPermission | str) -> Callable[[T], T
             return True
 
         if not db_enabled():
+            error_sender = getattr(ctx, "error", None)
+            if callable(error_sender):
+                with suppress(Exception):
+                    await cast(Any, error_sender)(
+                        "Database is not available on this instance.",
+                        ensure_period=False,
+                    )
             return False
 
         async with get_session() as session:
@@ -202,7 +216,17 @@ def fakeperms_or_discordperm(permission: AppPermission | str) -> Callable[[T], T
             )
             allowed = result.scalar_one_or_none()
 
-        return bool(allowed)
+        allowed_bool = bool(allowed)
+        if not allowed_bool:
+            error_sender = getattr(ctx, "error", None)
+            if callable(error_sender):
+                with suppress(Exception):
+                    await cast(Any, error_sender)(
+                        f"You are missing the `{perm_name}` permission.",
+                        ensure_period=False,
+                    )
+
+        return allowed_bool
 
     setattr(
         predicate,
