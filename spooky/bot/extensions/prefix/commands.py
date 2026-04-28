@@ -51,6 +51,7 @@ from spooky.bot.prefix import DEFAULT_PREFIX, refresh_guild_prefix, refresh_user
 from spooky.core.checks import fakeperms_or_discordperm
 from spooky.core.exceptions import MissingSubcommandError
 from spooky.db import get_session
+from spooky.ext.constants import FREE_CONFIGS_CHANNEL_ID
 from spooky.models.entities.permissions import AppPermission
 
 from .utils import (
@@ -240,8 +241,17 @@ class PrefixCommands(commands.Cog):
         },
     )
     @fakeperms_or_discordperm(AppPermission.MANAGE_ROLES)
-    async def subscriber(self, ctx: SpookyContext, member: disnake.Member) -> None:
+    async def subscriber(self, ctx: SpookyContext, member: disnake.Member | None = None) -> None:
         """Grant the configured subscriber role to a mentioned guild member."""
+        if member is None:
+            prefix = getattr(ctx, "clean_prefix", None) or getattr(ctx, "prefix", "") or ""
+            usage = f"{prefix}subscriber @member".strip()
+            await ctx.error(
+                f"Missing required argument `member`.\nUsage: `{usage}`",
+                ensure_period=False,
+            )
+            return
+
         guild = ctx.guild
         if guild is None:
             await ctx.error("This command can only be used inside a guild.")
@@ -261,4 +271,8 @@ class PrefixCommands(commands.Cog):
             role,
             reason=f"Granted by {ctx.author} via prefix subscriber command.",
         )
-        await ctx.approve(f"Added {role.mention} to {member.mention}.")
+        await ctx.approve(
+            "🎉 "
+            f"Welcome, {member.mention}! You now have access to the free configs. "
+            f"You can find them in <#{FREE_CONFIGS_CHANNEL_ID}>."
+        )

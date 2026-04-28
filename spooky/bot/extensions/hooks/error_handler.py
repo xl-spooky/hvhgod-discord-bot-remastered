@@ -92,3 +92,12 @@ class ErrorHandler(commands.Cog):
             usage = _format_prefix_usage(ctx, include_group_subcommands=True)
             await _send_prefix_error(ctx, description=f"Usage: `{usage}`")
             return
+
+        if isinstance(original, commands.MissingRequiredArgument):
+            usage = _format_prefix_usage(ctx)
+            parameter_name = getattr(getattr(original, "param", None), "name", "argument")
+            await _send_prefix_error(
+                ctx,
+                description=(f"Missing required argument `{parameter_name}`.\nUsage: `{usage}`"),
+            )
+            return
