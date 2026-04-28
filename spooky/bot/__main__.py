@@ -106,7 +106,10 @@ async def main() -> None:
         activity = disnake.Game(name="[DEV]")
         status = disnake.Status.dnd
     else:
-        activity = disnake.Game(name=f"Running version {__version__}")
+        activity = disnake.Activity(
+            type=disnake.ActivityType.watching,
+            name="Over .gg/hvhgod",
+        )
         status = disnake.Status.online
 
     # Step 4: Intents, caching, and command sync flags.
