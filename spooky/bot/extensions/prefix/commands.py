@@ -51,6 +51,7 @@ from spooky.bot.prefix import DEFAULT_PREFIX, refresh_guild_prefix, refresh_user
 from spooky.core.checks import fakeperms_or_discordperm
 from spooky.core.exceptions import MissingSubcommandError
 from spooky.db import get_session
+from spooky.ext.constants import FREE_CONFIGS_CHANNEL_ID
 from spooky.models.entities.permissions import AppPermission
 
 from .utils import (
@@ -261,4 +262,8 @@ class PrefixCommands(commands.Cog):
             role,
             reason=f"Granted by {ctx.author} via prefix subscriber command.",
         )
-        await ctx.approve(f"Added {role.mention} to {member.mention}.")
+        await ctx.approve(
+            "🎉 "
+            f"Welcome, {member.mention}! You now have access to the free configs. "
+            f"You can find them in <#{FREE_CONFIGS_CHANNEL_ID}>."
+        )
