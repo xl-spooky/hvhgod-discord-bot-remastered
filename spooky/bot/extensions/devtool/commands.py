@@ -500,26 +500,23 @@ class DevtoolCommands(commands.Cog):
         summary = self._build_member_code_summary(member=member, code_by_role=code_by_role)
 
         if config_thread_id is None:
-            await inter.response.send_message(
+            await inter.edit_original_response(
                 embed=status_card(False, f"No CONFIG CODES thread is stored for {member.mention}."),
-                ephemeral=True,
             )
             return
 
         config_thread = self.bot.get_channel(int(config_thread_id))
         if not isinstance(config_thread, disnake.Thread):
-            await inter.response.send_message(
+            await inter.edit_original_response(
                 embed=status_card(False, "Stored CONFIG CODES thread is missing or inaccessible."),
-                ephemeral=True,
             )
             return
 
         await config_thread.send(summary)
-        await inter.response.send_message(
+        await inter.edit_original_response(
             embed=status_card(
                 True, f"Sent latest config access summary to {config_thread.mention}."
             ),
-            ephemeral=True,
         )
 
     @devtool.sub_command(name="sendallmembercode")

@@ -43,6 +43,7 @@ Users can manage prefixes purely through message commands:
 
 from __future__ import annotations
 
+import disnake
 from disnake.ext import commands
 from spooky.bot import Spooky
 from spooky.bot.context import SpookyContext
@@ -227,3 +228,37 @@ class PrefixCommands(commands.Cog):
         )
 
         await ctx.send(embed=embed)
+
+    @commands.command(
+        name="subscriber",
+        aliases=("sb", "sc", "sr"),
+        hidden=True,
+        extras={
+            "category": "Moderation",
+            "example": ",subscriber @member",
+            "help_topics": ("subscriber",),
+        },
+    )
+    @fakeperms_or_discordperm(AppPermission.MANAGE_ROLES)
+    async def subscriber(self, ctx: SpookyContext, member: disnake.Member) -> None:
+        """Grant the configured subscriber role to a mentioned guild member."""
+        guild = ctx.guild
+        if guild is None:
+            await ctx.error("This command can only be used inside a guild.")
+            return
+
+        subscriber_role_id = 1495576579105886348
+        role = guild.get_role(subscriber_role_id)
+        if role is None:
+            await ctx.error(f"Subscriber role `{subscriber_role_id}` was not found in this server.")
+            return
+
+        if role in member.roles:
+            await ctx.warning(f"{member.mention} already has {role.mention}.")
+            return
+
+        await member.add_roles(
+            role,
+            reason=f"Granted by {ctx.author} via prefix subscriber command.",
+        )
+        await ctx.approve(f"Added {role.mention} to {member.mention}.")
