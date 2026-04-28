@@ -12,9 +12,16 @@ from collections.abc import Iterable
 from typing import cast
 
 import disnake
+from disnake.abc import Messageable
 from disnake.ext import commands
 from loguru import logger
 from spooky.bot import Spooky, __author__, __version__
+from spooky.core import checks
+from spooky.db import get_session
+from spooky.ext.components.v2.card import status_card
+from spooky.ext.constants import BUYER_ALERT_CHANNEL_ID
+from spooky.models.entities.buyers import BuyerChannel
+from sqlalchemy import select
 
 __all__ = ["LifecycleEvents"]
 
@@ -49,6 +56,94 @@ class LifecycleEvents(commands.Cog):
             self._version,
             self._developers,
         )
+        await self._run_buyer_departure_db_sync()
+
+    async def _send_buyer_departure_warning(
+        self,
+        *,
+        user_id: int,
+        channel_id: int | None = None,
+        source: str,
+    ) -> None:
+        """Publish a warning card for a buyer that left while having a channel row."""
+        alert_channel = self.bot.get_channel(BUYER_ALERT_CHANNEL_ID)
+        if not isinstance(alert_channel, Messageable):
+            logger.warning(
+                "Unable to resolve buyer alert channel {}",
+                BUYER_ALERT_CHANNEL_ID,
+            )
+            return
+
+        channel_text = f"<#{channel_id}>" if channel_id is not None else "`unknown`"
+        await alert_channel.send(
+            embed=status_card(
+                None,
+                (
+                    f"⚠️ Buyer <@{user_id}> (`{user_id}`) appears to have left the server. "
+                    f"Stored buyer channel: {channel_text}. "
+                    f"Detection source: `{source}`."
+                ),
+                ensure_period=False,
+            )
+        )
+
+    async def _run_buyer_departure_db_sync(self) -> None:
+        """Re-check persisted buyer rows against guild membership after startup."""
+        if not checks.db_enabled():
+            return
+
+        async with get_session() as session:
+            rows = (await session.execute(select(BuyerChannel))).scalars().all()
+
+        if not rows:
+            return
+
+        notified_pairs: set[tuple[int, int]] = set()
+        for row in rows:
+            channel = self.bot.get_channel(int(row.channel_id))
+            if not isinstance(channel, disnake.abc.GuildChannel | disnake.Thread):
+                continue
+
+            guild = channel.guild
+            if guild.get_member(int(row.user_id)) is not None:
+                continue
+
+            dedupe_key = (int(row.user_id), int(row.channel_id))
+            if dedupe_key in notified_pairs:
+                continue
+            notified_pairs.add(dedupe_key)
+            await self._send_buyer_departure_warning(
+                user_id=int(row.user_id),
+                channel_id=int(row.channel_id),
+                source="db_sync:on_ready",
+            )
+
+    @commands.Cog.listener()
+    async def on_member_remove(self, member: disnake.Member) -> None:
+        """Notify operations when a buyer with stored channel records leaves."""
+        if not checks.db_enabled():
+            return
+
+        async with get_session() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(BuyerChannel).where(BuyerChannel.user_id == int(member.id))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        if not rows:
+            return
+
+        for row in rows:
+            await self._send_buyer_departure_warning(
+                user_id=int(member.id),
+                channel_id=int(row.channel_id),
+                source="event:on_member_remove",
+            )
 
     def _stop_views_for_message_ids(self, message_ids: Iterable[int]) -> None:
         """Stop UI views associated with the given deleted message IDs.

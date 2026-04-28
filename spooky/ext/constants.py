@@ -12,6 +12,9 @@ REQUIRED_BUYER_ROLE_ID = 1463704601399136259
 DEFAULT_BUYER_CATEGORY_ID = 1497822506281865407
 """Default category under which buyer forums should be created."""
 
+BUYER_ALERT_CHANNEL_ID = 1498481132344447076
+"""Ops channel used for buyer departure and DB-sync warning notifications."""
+
 SEMI_LEGIT_MAIN_ROLE_ID = 1486150244893724744
 SEMI_LEGIT_VISUAL_ROLE_ID = 1489355927378460692
 SEMI_RAGE_MAIN_ROLE_ID = 1491260799308533902
@@ -19,6 +22,7 @@ SEMI_RAGE_VISUAL_ROLE_ID = 1492977718290022420
 """Role IDs used to determine which config codes a member can access."""
 
 __all__ = [
+    "BUYER_ALERT_CHANNEL_ID",
     "DEFAULT_BUYER_CATEGORY_ID",
     "OWNER_ID",
     "REQUIRED_BUYER_ROLE_ID",

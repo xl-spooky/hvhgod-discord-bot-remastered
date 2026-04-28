@@ -314,6 +314,79 @@ class DevtoolCommands(commands.Cog):
             ephemeral=True,
         )
 
+    @devtool.sub_command(name="removebuyerchannel")
+    async def devtool_removebuyerchannel(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        channel_id: str,
+    ) -> None:
+        """Delete a buyer forum + DB rows by persisted buyer channel ID."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        raw_channel_id = channel_id.strip()
+        if not raw_channel_id.isdigit():
+            await inter.response.send_message(
+                embed=status_card(False, "Channel ID must be a valid numeric snowflake."),
+                ephemeral=True,
+            )
+            return
+
+        target_channel_id = int(raw_channel_id)
+        await inter.response.defer(ephemeral=True)
+
+        async with get_session() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(BuyerChannel).where(BuyerChannel.channel_id == target_channel_id)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            if not rows:
+                await inter.followup.send(
+                    embed=status_card(
+                        False,
+                        f"No buyer record found for channel `{target_channel_id}`.",
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            deleted_channel = False
+            channel = self.bot.get_channel(target_channel_id)
+            if channel is None:
+                with suppress(Exception):
+                    channel = await self.bot.fetch_channel(target_channel_id)
+            if isinstance(channel, disnake.abc.GuildChannel | disnake.Thread):
+                with suppress(Exception):
+                    await channel.delete(
+                        reason=f"removebuyerchannel requested by {inter.author} ({inter.author.id})"
+                    )
+                    deleted_channel = True
+
+            await session.execute(
+                delete(BuyerChannel).where(BuyerChannel.channel_id == target_channel_id)
+            )
+            await session.flush()
+
+        await inter.followup.send(
+            embed=status_card(
+                True,
+                (
+                    f"Removed buyer rows for channel `{target_channel_id}` "
+                    f"({len(rows)} row(s)). Channel deleted: `{deleted_channel}`."
+                ),
+            ),
+            ephemeral=True,
+        )
+
     @devtool.sub_command(name="setcode")
     async def devtool_setcode(
         self,
