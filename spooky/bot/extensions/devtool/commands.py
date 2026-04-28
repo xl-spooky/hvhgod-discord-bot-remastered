@@ -1,0 +1,676 @@
+"""Slash commands for developer-only maintenance utilities."""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from contextlib import suppress
+from typing import Literal
+
+import disnake
+from disnake.ext import commands
+from spooky.bot import Spooky
+from spooky.core.checks import fakeperms_or_discordperm
+from spooky.db import get_session
+from spooky.ext.components.v2.card import status_card
+from spooky.ext.constants import (
+    DEFAULT_BUYER_CATEGORY_ID,
+    OWNER_ID,
+    REQUIRED_BUYER_ROLE_ID,
+    SEMI_LEGIT_MAIN_ROLE_ID,
+    SEMI_LEGIT_VISUAL_ROLE_ID,
+    SEMI_RAGE_MAIN_ROLE_ID,
+    SEMI_RAGE_VISUAL_ROLE_ID,
+    VAC_TIPS_CHANNEL_ID,
+)
+from spooky.ext.message import render_buyer_welcome, render_config_code_update
+from spooky.models.entities.buyers import BuyerChannel, BuyerCode
+from spooky.models.entities.permissions import AppPermission, UserPermissionOverride
+from sqlalchemy import delete, select
+from thefuzz import process
+
+PermissionAction = Literal["Add", "Remove"]
+CodeBundleOption = Literal["Semi-Legit", "Semi-Rage"]
+CodeBranchOption = Literal["Main Branch", "Visual"]
+CodeColorOption = Literal["Pink", "Purple", "Yellow", "Blue", "Red", "Black & White"]
+FUZZY_PERMISSION_SCORE_THRESHOLD = 65
+MAX_PERMISSION_CHOICES = 25
+
+__all__ = ["DevtoolCommands"]
+
+
+class DevtoolCommands(commands.Cog):
+    """Developer tooling command group.
+
+    This cog exposes restricted slash commands for maintaining fake-permission
+    overrides used by private deployments.
+    """
+
+    def __init__(self, bot: Spooky) -> None:
+        self.bot = bot
+
+    @commands.slash_command(
+        name="devtool",
+        default_member_permissions=disnake.Permissions(administrator=True),
+        extras={
+            "category": "Developer",
+            "example": "/devtool permission action:Add user:@User permission:manage_guild",
+            "help_topics": ("devtool", "permissions"),
+        },
+    )
+    @fakeperms_or_discordperm(AppPermission.ADMINISTRATOR)
+    async def devtool(self, inter: disnake.AppCmdInter[Spooky]) -> None:
+        """Root command group for developer tooling."""
+        del inter
+
+    @devtool.sub_command(name="permission")
+    async def devtool_permission(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        action: PermissionAction,
+        user: disnake.Member,
+        permission: str,
+    ) -> None:
+        """Add or remove fake-permission overrides for a guild member.
+
+        Parameters
+        ----------
+        action : Literal["Add", "Remove"]
+            Whether to add or remove the selected permission override.
+        user : disnake.Member
+            Guild member whose fake permission will be edited.
+        permission : str
+            Permission name. Fuzzy matching is applied against the full
+            :class:`AppPermission` catalog.
+        """
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        if inter.guild is None:
+            await inter.response.send_message(
+                embed=status_card(False, "This command can only be used in a guild."),
+                ephemeral=True,
+            )
+            return
+
+        resolved_perm = self._resolve_permission_name(permission)
+        if resolved_perm is None:
+            await inter.response.send_message(
+                embed=status_card(False, "Unable to match that permission name."),
+                ephemeral=True,
+            )
+            return
+
+        async with get_session() as session:
+            if action == "Add":
+                result = await session.execute(
+                    select(UserPermissionOverride).where(
+                        UserPermissionOverride.guild_id == int(inter.guild.id),
+                        UserPermissionOverride.user_id == int(user.id),
+                        UserPermissionOverride.perm_name == resolved_perm,
+                    )
+                )
+                row = result.scalar_one_or_none()
+                if row is None:
+                    row = UserPermissionOverride(
+                        guild_id=int(inter.guild.id),
+                        user_id=int(user.id),
+                        perm_name=resolved_perm,
+                        allowed=True,
+                    )
+                    session.add(row)
+                else:
+                    row.allowed = True
+                message = f"Granted fake permission `{resolved_perm}` to {user.mention}"
+            else:
+                await session.execute(
+                    delete(UserPermissionOverride).where(
+                        UserPermissionOverride.guild_id == int(inter.guild.id),
+                        UserPermissionOverride.user_id == int(user.id),
+                        UserPermissionOverride.perm_name == resolved_perm,
+                    )
+                )
+                message = f"Removed fake permission `{resolved_perm}` from {user.mention}"
+
+        await inter.response.send_message(embed=status_card(True, message), ephemeral=True)
+
+    @devtool.sub_command(name="createbuyer")
+    async def devtool_createbuyer(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        member: disnake.Member,
+        category: disnake.CategoryChannel | None = None,
+    ) -> None:
+        """Create a private buyer forum visible only to the selected member.
+
+        Parameters
+        ----------
+        member : disnake.Member
+            Member who should have access to the created buyer forum.
+        category : disnake.CategoryChannel | None, optional
+            Optional category override. Defaults to ``DEFAULT_BUYER_CATEGORY_ID``.
+        """
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        guild = inter.guild
+        if guild is None:
+            await inter.response.send_message(
+                embed=status_card(False, "This command can only be used in a guild."),
+                ephemeral=True,
+            )
+            return
+
+        if not any(role.id == REQUIRED_BUYER_ROLE_ID for role in member.roles):
+            await inter.response.send_message(
+                embed=status_card(False, f"{member.mention} is missing the required buyer role."),
+                ephemeral=True,
+            )
+            return
+
+        async with get_session() as session:
+            existing = (
+                await session.execute(
+                    select(BuyerChannel.id).where(BuyerChannel.user_id == int(member.id)).limit(1)
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                await inter.response.send_message(
+                    embed=status_card(False, f"{member.mention} already has a buyer channel."),
+                    ephemeral=True,
+                )
+                return
+
+        await inter.response.defer(ephemeral=True)
+
+        everyone_overwrite = disnake.PermissionOverwrite(view_channel=False)
+        member_overwrite = self._buyer_member_overwrite()
+        target_category = category
+        if target_category is None:
+            resolved = guild.get_channel(DEFAULT_BUYER_CATEGORY_ID)
+            target_category = resolved if isinstance(resolved, disnake.CategoryChannel) else None
+
+        forum_name = f"buyer-{member.display_name}".lower().replace(" ", "-")
+        forum = await guild.create_forum_channel(
+            name=forum_name[:100],
+            category=target_category,
+            overwrites={
+                guild.default_role: everyone_overwrite,
+                member: member_overwrite,
+            },
+            reason=f"Buyer forum requested by {inter.author} for {member}",
+        )
+
+        vac_tips_channel = f"<#{VAC_TIPS_CHANNEL_ID}>"
+        welcome_message = render_buyer_welcome(
+            user_mention=member.mention,
+            vac_tips_channel_mention=vac_tips_channel,
+        )
+
+        await forum.create_thread(name="INTRODUCTION", content=welcome_message)
+        await forum.create_thread(
+            name="CONTACT US",
+            content=(
+                f"{member.mention}\n"
+                "Use this thread anytime if you need direct help, "
+                "have account questions, or need support."
+            ),
+        )
+        config_thread_result = await forum.create_thread(
+            name="CONFIG CODES",
+            content="Config codes for this buyer will be posted in this thread.",
+        )
+        config_thread = self._extract_created_thread(config_thread_result)
+        if config_thread is None:
+            await inter.followup.send(
+                embed=status_card(False, "Failed to resolve CONFIG CODES thread for persistence."),
+                ephemeral=True,
+            )
+            return
+
+        async with get_session() as session:
+            session.add(
+                BuyerChannel(
+                    user_id=int(member.id),
+                    channel_id=int(forum.id),
+                    config_thread_id=int(config_thread.id),
+                )
+            )
+            await session.flush()
+
+        await inter.followup.send(
+            embed=status_card(
+                True,
+                f"Created buyer forum {forum.mention} for {member.mention}",
+            ),
+            ephemeral=True,
+        )
+
+    @devtool.sub_command(name="removebuyer")
+    async def devtool_removebuyer(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        member: disnake.Member,
+    ) -> None:
+        """Delete buyer forum channels and DB rows associated with a member."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        await inter.response.defer(ephemeral=True)
+
+        async with get_session() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(BuyerChannel).where(BuyerChannel.user_id == int(member.id))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+            if not rows:
+                await inter.followup.send(
+                    embed=status_card(False, f"No buyer channels recorded for {member.mention}."),
+                    ephemeral=True,
+                )
+                return
+
+            deleted_channels = 0
+            for row in rows:
+                channel = self.bot.get_channel(int(row.channel_id))
+                if channel is None:
+                    continue
+                if not isinstance(channel, disnake.abc.GuildChannel | disnake.Thread):
+                    continue
+                with suppress(Exception):
+                    await channel.delete(reason=f"removebuyer requested for {member}")
+                    deleted_channels += 1
+
+            await session.execute(
+                delete(BuyerChannel).where(BuyerChannel.user_id == int(member.id))
+            )
+            await session.flush()
+
+        await inter.followup.send(
+            embed=status_card(
+                True,
+                (
+                    f"Removed buyer records for {member.mention}. "
+                    f"Deleted channels: {deleted_channels}/{len(rows)}"
+                ),
+            ),
+            ephemeral=True,
+        )
+
+    @devtool.sub_command(name="setcode")
+    async def devtool_setcode(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        bundle: CodeBundleOption,
+        branch: CodeBranchOption,
+        color: CodeColorOption,
+        code: str,
+        version: str,
+    ) -> None:
+        """Publish a code update to all persisted CONFIG CODES buyer threads."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        payload = render_config_code_update(
+            bundle=bundle,
+            branch=branch,
+            color=color,
+            code=code,
+            version=version,
+        )
+
+        role_id = self._role_for_code_slot(bundle=bundle, branch=branch)
+        if role_id is None:
+            await inter.response.send_message(
+                embed=status_card(False, "Unable to resolve code slot role."),
+                ephemeral=True,
+            )
+            return
+
+        async with get_session() as session:
+            existing_code = (
+                await session.execute(
+                    select(BuyerCode)
+                    .where(BuyerCode.role_id == int(role_id), BuyerCode.color == color)
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+
+            if existing_code is None:
+                session.add(
+                    BuyerCode(
+                        role_id=int(role_id),
+                        bundle=bundle,
+                        branch=branch,
+                        color=color,
+                        code=code,
+                        version=version,
+                    )
+                )
+            else:
+                existing_code.bundle = bundle
+                existing_code.branch = branch
+                existing_code.color = color
+                existing_code.code = code
+                existing_code.version = version
+
+            rows = (
+                (await session.execute(select(BuyerChannel.user_id, BuyerChannel.config_thread_id)))
+                .tuples()
+                .all()
+            )
+            await session.flush()
+
+        delivered = 0
+        for user_id, thread_id in rows:
+            thread = self.bot.get_channel(int(thread_id))
+            if not isinstance(thread, disnake.Thread):
+                continue
+            with suppress(Exception):
+                await thread.send(f"<@{int(user_id)}>\n{payload}")
+                delivered += 1
+
+        await inter.response.send_message(
+            embed=status_card(
+                True,
+                f"Published code update to {delivered}/{len(rows)} CONFIG CODES threads.",
+            ),
+            ephemeral=True,
+        )
+
+    @devtool.sub_command(name="sendmembercode")
+    async def devtool_sendmembercode(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        member: disnake.Member,
+    ) -> None:
+        """Send latest role-based config access summary for a selected member."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        tracked_roles = {
+            SEMI_LEGIT_MAIN_ROLE_ID,
+            SEMI_LEGIT_VISUAL_ROLE_ID,
+            SEMI_RAGE_MAIN_ROLE_ID,
+            SEMI_RAGE_VISUAL_ROLE_ID,
+        }
+
+        async with get_session() as session:
+            code_rows = (
+                (
+                    await session.execute(
+                        select(BuyerCode).where(BuyerCode.role_id.in_(tracked_roles))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            config_thread_id = (
+                await session.execute(
+                    select(BuyerChannel.config_thread_id)
+                    .where(BuyerChannel.user_id == int(member.id))
+                    .limit(1)
+                )
+            ).scalar_one_or_none()
+
+        code_by_role = self._group_codes_by_role(code_rows)
+        summary = self._build_member_code_summary(member=member, code_by_role=code_by_role)
+
+        if config_thread_id is None:
+            await inter.response.send_message(
+                embed=status_card(False, f"No CONFIG CODES thread is stored for {member.mention}."),
+                ephemeral=True,
+            )
+            return
+
+        config_thread = self.bot.get_channel(int(config_thread_id))
+        if not isinstance(config_thread, disnake.Thread):
+            await inter.response.send_message(
+                embed=status_card(False, "Stored CONFIG CODES thread is missing or inaccessible."),
+                ephemeral=True,
+            )
+            return
+
+        await config_thread.send(summary)
+        await inter.response.send_message(
+            embed=status_card(
+                True, f"Sent latest config access summary to {config_thread.mention}."
+            ),
+            ephemeral=True,
+        )
+
+    @devtool.sub_command(name="sendallmembercode")
+    async def devtool_sendallmembercode(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        note: str,
+    ) -> None:
+        """Send role-based config summaries to all persisted buyer config threads."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        guild = inter.guild
+        if guild is None:
+            await inter.response.send_message(
+                embed=status_card(False, "This command can only be used in a guild."),
+                ephemeral=True,
+            )
+            return
+
+        tracked_roles = {
+            SEMI_LEGIT_MAIN_ROLE_ID,
+            SEMI_LEGIT_VISUAL_ROLE_ID,
+            SEMI_RAGE_MAIN_ROLE_ID,
+            SEMI_RAGE_VISUAL_ROLE_ID,
+        }
+
+        async with get_session() as session:
+            code_rows = (
+                (
+                    await session.execute(
+                        select(BuyerCode).where(BuyerCode.role_id.in_(tracked_roles))
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            buyer_rows = (
+                (await session.execute(select(BuyerChannel.user_id, BuyerChannel.config_thread_id)))
+                .tuples()
+                .all()
+            )
+
+        if not buyer_rows:
+            await inter.response.send_message(
+                embed=status_card(False, "No buyer channels are stored yet."),
+                ephemeral=True,
+            )
+            return
+
+        code_by_role = self._group_codes_by_role(code_rows)
+        sent = 0
+        missing_threads = 0
+        missing_members = 0
+
+        for user_id, config_thread_id in buyer_rows:
+            member = guild.get_member(int(user_id))
+            if member is None:
+                missing_members += 1
+                continue
+
+            config_thread = self.bot.get_channel(int(config_thread_id))
+            if not isinstance(config_thread, disnake.Thread):
+                missing_threads += 1
+                continue
+
+            summary = self._build_member_code_summary(
+                member=member,
+                code_by_role=code_by_role,
+                note=note,
+            )
+            with suppress(Exception):
+                await config_thread.send(summary)
+                sent += 1
+
+        await inter.response.send_message(
+            embed=status_card(
+                True,
+                (
+                    f"Sent config summaries to {sent}/{len(buyer_rows)} buyer threads. "
+                    f"Missing members: {missing_members}. "
+                    f"Missing/inaccessible threads: {missing_threads}."
+                ),
+            ),
+            ephemeral=True,
+        )
+
+    @staticmethod
+    def _group_codes_by_role(rows: Sequence[BuyerCode]) -> dict[int, list[BuyerCode]]:
+        """Group code rows by role id for summary rendering."""
+        grouped: dict[int, list[BuyerCode]] = {}
+        for row in rows:
+            grouped.setdefault(int(row.role_id), []).append(row)
+        return grouped
+
+    @staticmethod
+    def _build_member_code_summary(
+        *,
+        member: disnake.Member,
+        code_by_role: dict[int, list[BuyerCode]],
+        note: str | None = None,
+    ) -> str:
+        """Render the standard role-based config summary for a member."""
+        member_role_ids = {int(role.id) for role in member.roles}
+
+        def _slot(role_id: int) -> str:
+            if role_id not in member_role_ids:
+                return "Open ticket to purchase the config."
+            rows = code_by_role.get(role_id, [])
+            if not rows:
+                return "⚠️ Not configured yet."
+            ordered = sorted(rows, key=lambda item: item.color.lower())
+            lines: list[str] = []
+            for row in ordered:
+                lines.append(f"- **{row.color}** • Version `{row.version}`\n  Code: ||{row.code}||")
+            return "\n".join(lines)
+
+        note_prefix = f"## NOTE\n{note.strip()}\n\n" if note is not None and note.strip() else ""
+        return (
+            f"{note_prefix}"
+            "## LATEST CONFIG ACCESS\n"
+            f"{member.mention}\n\n"
+            "Your currently available config codes are listed below "
+            "based on your assigned roles.\n\n"
+            "### Semi-Legit • Main Branch\n"
+            f"{_slot(SEMI_LEGIT_MAIN_ROLE_ID)}\n\n"
+            "### Semi-Legit • Visuals Add-On\n"
+            f"{_slot(SEMI_LEGIT_VISUAL_ROLE_ID)}\n\n"
+            "### Semi-Rage • Main Branch\n"
+            f"{_slot(SEMI_RAGE_MAIN_ROLE_ID)}\n\n"
+            "### Semi-Rage • Visuals Add-On\n"
+            f"{_slot(SEMI_RAGE_VISUAL_ROLE_ID)}"
+        )
+
+    @staticmethod
+    def _resolve_permission_name(raw: str) -> str | None:
+        """Resolve user-entered text to an :class:`AppPermission` value via fuzzing."""
+        candidates = [permission.value for permission in AppPermission]
+        matches = process.extract(raw, candidates, limit=1)
+        if not matches:
+            return None
+
+        best_match, score = matches[0]
+        if score < FUZZY_PERMISSION_SCORE_THRESHOLD:
+            return None
+        return best_match
+
+    @staticmethod
+    def _buyer_member_overwrite() -> disnake.PermissionOverwrite:
+        """Return strict member overwrite for buyer forums."""
+        overwrite_payload = {permission.value: False for permission in AppPermission}
+        overwrite = disnake.PermissionOverwrite(**overwrite_payload)
+        overwrite.view_channel = True
+        overwrite.send_messages_in_threads = True
+        overwrite.read_message_history = True
+        overwrite.send_messages = False
+        overwrite.create_public_threads = False
+        overwrite.create_private_threads = False
+        return overwrite
+
+    @staticmethod
+    def _extract_created_thread(result: object) -> disnake.Thread | None:
+        """Extract thread object from forum create_thread return payload."""
+        if isinstance(result, disnake.Thread):
+            return result
+        if isinstance(result, tuple) and result:
+            maybe_thread = result[0]
+            if isinstance(maybe_thread, disnake.Thread):
+                return maybe_thread
+        return None
+
+    @staticmethod
+    def _role_for_code_slot(*, bundle: CodeBundleOption, branch: CodeBranchOption) -> int | None:
+        """Resolve the access role tied to a config bundle/branch slot."""
+        role_map: dict[tuple[CodeBundleOption, CodeBranchOption], int] = {
+            ("Semi-Legit", "Main Branch"): SEMI_LEGIT_MAIN_ROLE_ID,
+            ("Semi-Legit", "Visual"): SEMI_LEGIT_VISUAL_ROLE_ID,
+            ("Semi-Rage", "Main Branch"): SEMI_RAGE_MAIN_ROLE_ID,
+            ("Semi-Rage", "Visual"): SEMI_RAGE_VISUAL_ROLE_ID,
+        }
+        return role_map.get((bundle, branch))
+
+    @devtool_permission.autocomplete("permission")
+    async def permission_autocomplete(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        user_input: str,
+    ) -> list[str]:
+        """Return up to 25 fuzzy-matched permission choices for slash autocomplete."""
+        del inter
+        candidates = [permission.value for permission in AppPermission]
+        if not user_input.strip():
+            return candidates[:MAX_PERMISSION_CHOICES]
+
+        ranked = process.extract(user_input, candidates, limit=MAX_PERMISSION_CHOICES)
+        seen: set[str] = set()
+        results: list[str] = []
+        for choice, score in ranked:
+            if score < FUZZY_PERMISSION_SCORE_THRESHOLD:
+                continue
+            if choice in seen:
+                continue
+            seen.add(choice)
+            results.append(choice)
+
+        if results:
+            return results
+        return candidates[:MAX_PERMISSION_CHOICES]

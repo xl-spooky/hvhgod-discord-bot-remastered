@@ -5,7 +5,6 @@ This module wires together:
 - **Environment variables** (via ``python-dotenv`` and direct ``os.getenv``),
 - **Dynaconf-backed config** for *colors*, *emojis*, and *messages*,
 - **Database configuration helpers** for SQLAlchemy (URL + engine options),
-- **Redis connection helpers** for cache/TTL infrastructure,
 - And exports convenient aliases for frequently accessed settings.
 
 On import, it also validates that a **bot token** is available and configures
@@ -25,10 +24,6 @@ colors : Mapping[str, int]
 messages : Mapping[str, Any]
     App message strings from ``assets/settings/messages.toml`` (supports nested
     groups like ``messages.telemetry.details_title``).
-get_redis_url : Callable[[], str]
-    Compose a Redis URL from either ``REDIS_URL`` or granular ``REDIS_*`` parts.
-get_redis_options : Callable[[], dict[str, Any]]
-    Return supplemental keyword arguments for :func:`redis.asyncio.Redis.from_url`.
 
 Environment
 -----------
@@ -54,13 +49,6 @@ Database (URL & Engine)
   - ``DB_ECHO`` (bool): SQL echo.
   - ``DB_POOL_SIZE`` (int), ``DB_MAX_OVERFLOW`` (int),
   - ``DB_POOL_TIMEOUT`` (int), ``DB_POOL_RECYCLE`` (int).
-
-Redis
-~~~~~
-- ``REDIS_URL`` : Full connection URL (overrides other Redis env vars).
-- ``REDIS_HOST`` (default: ``redis``), ``REDIS_PORT`` (``6379``),
-  ``REDIS_DB`` (``0``), ``REDIS_USER`` (optional), ``REDIS_PASS`` (optional),
-  ``REDIS_SSL`` (bool: enable TLS).
 
 Examples
 --------
@@ -89,7 +77,6 @@ Notes
 import os
 from collections import abc
 from typing import TYPE_CHECKING, Any, cast
-from urllib.parse import quote
 
 import disnake
 from dotenv import load_dotenv
@@ -102,8 +89,6 @@ __all__ = [
     "get_credentials",
     "get_database_engine_options",
     "get_database_url",
-    "get_redis_options",
-    "get_redis_url",
     "messages",
     "settings",
 ]
@@ -394,80 +379,6 @@ def get_database_engine_options() -> dict[str, Any]:
 
         options["pool_size"] = pool_size
         options["max_overflow"] = max_overflow
-
-    return options
-
-
-def get_redis_url() -> str:
-    """Return a Redis connection URL derived from environment configuration.
-
-    Resolution order
-    ----------------
-    1. ``REDIS_URL`` if set (returned as-is),
-    2. Otherwise builds a URL from granular ``REDIS_*`` parts.
-
-    Environment
-    -----------
-    REDIS_URL, REDIS_HOST, REDIS_PORT, REDIS_DB, REDIS_USER, REDIS_PASS, REDIS_SSL
-
-    Returns
-    -------
-    str
-        A Redis connection URL suitable for :func:`redis.asyncio.Redis.from_url`.
-    """
-    url = os.getenv("REDIS_URL")
-    if url:
-        return url
-
-    host = os.getenv("REDIS_HOST") or "redis"
-    port = os.getenv("REDIS_PORT") or "6379"
-    db = os.getenv("REDIS_DB") or "0"
-    user = os.getenv("REDIS_USER")
-    password = os.getenv("REDIS_PASS")
-    ssl_flag = _env_bool("REDIS_SSL")
-    scheme = "rediss" if ssl_flag else "redis"
-
-    auth = ""
-    if user or password:
-        encoded_user = quote(user or "")
-        encoded_pass = quote(password or "")
-        if user and password:
-            auth = f"{encoded_user}:{encoded_pass}@"
-        elif user:
-            auth = f"{encoded_user}@"
-        else:
-            auth = f":{encoded_pass}@"
-
-    return f"{scheme}://{auth}{host}:{port}/{db}"
-
-
-def get_redis_options() -> dict[str, Any]:
-    """Return keyword arguments for :func:`redis.asyncio.Redis.from_url`.
-
-    Currently supports enabling TLS regardless of URL scheme and supplying a
-    password when ``REDIS_URL`` omits credentials.
-
-    Returns
-    -------
-    dict[str, Any]
-        Extra keyword arguments to pass to ``Redis.from_url``.
-    """
-    options: dict[str, Any] = {}
-
-    redis_url_env = os.getenv("REDIS_URL")
-
-    ssl_flag = _env_bool("REDIS_SSL")
-    if ssl_flag:
-        options["ssl"] = True
-
-    if redis_url_env:
-        password = os.getenv("REDIS_PASS")
-        if password and "@" not in redis_url_env:
-            options.setdefault("password", password)
-
-        user = os.getenv("REDIS_USER")
-        if user and "@" not in redis_url_env:
-            options.setdefault("username", user)
 
     return options
 

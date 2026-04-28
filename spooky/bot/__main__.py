@@ -53,11 +53,6 @@ from loguru import logger
 from spooky.bot import Spooky, __author__, __version__
 from spooky.core import checks, logging, settings
 from spooky.ext.http import HttpClient
-from spooky.premium.cache import fill_bot_sku_cache
-from spooky.redis import (
-    init_manager as init_redis_manager,
-    shutdown_manager as shutdown_redis_manager,
-)
 
 __all__ = ["main"]
 
@@ -115,7 +110,7 @@ async def main() -> None:
         status = disnake.Status.online
 
     # Step 4: Intents, caching, and command sync flags.
-    intents = disnake.Intents.default() | disnake.Intents.members | disnake.Intents.message_content
+    intents = disnake.Intents.all()
     sync_flags = CommandSyncFlags.default()
     sync_flags.sync_commands_debug = False
 
@@ -133,9 +128,8 @@ async def main() -> None:
         status=status,
         intents=intents,
         command_sync_flags=sync_flags,
-        max_messages=5000,  # Keep a reasonable message backlog.
-        chunk_guilds_at_startup=False,  # Avoid heavy startup chunking; lazy by default.
-        member_cache_flags=disnake.MemberCacheFlags.none(),  # Minimal member caching.
+        max_messages=None,
+        chunk_guilds_at_startup=True,
     )
     bot.load_extensions("./spooky/bot/extensions")  # Load all extension packages/modules.
 
@@ -159,15 +153,13 @@ async def main() -> None:
             # Some event loops (e.g. Windows Proactor) do not support loop signal handlers.
             signal.signal(signal_, _signal_handler)
 
-    # Step 7: Initialize database, Redis, and authenticate the bot.
+    # Step 7: Initialize database and authenticate the bot.
     async with asyncio.TaskGroup() as tg:
         if checks.db_enabled():
             logger.info("initializing database engine")
             tg.create_task(HttpClient.init_database())
         else:
             logger.info("skipping database initialization (disabled)")
-        logger.info("initializing redis client")
-        tg.create_task(init_redis_manager())
         tg.create_task(bot.login(settings.bot.token))  # Obtain gateway token/session.
 
     # Step 8: Create HTTP sessions and connect the bot.
@@ -179,12 +171,10 @@ async def main() -> None:
         asyncio.TaskGroup() as tg,
     ):
         tg.create_task(bot.connect())  # Connect to the gateway and start event loop.
-        tg.create_task(fill_bot_sku_cache(bot))
 
-    # Step 9: Cleanup phase (database + Redis).
+    # Step 9: Cleanup phase.
     if checks.db_enabled():
         await HttpClient.shutdown_database()
-    await shutdown_redis_manager()
 
 
 if __name__ == "__main__":
