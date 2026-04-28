@@ -22,6 +22,7 @@ from spooky.db import get_session
 from spooky.ext.components.v2.card import status_card
 from spooky.ext.constants import BUYER_ALERT_CHANNEL_ID
 from spooky.models.entities.buyers import BuyerChannel
+from spooky.models.entities.join_pings import JoinPingConfig
 from sqlalchemy import select
 
 __all__ = ["LifecycleEvents"]
@@ -160,6 +161,41 @@ class LifecycleEvents(commands.Cog):
                 ensure_period=False,
             )
         )
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: disnake.Member) -> None:
+        """Ping newly joined members in configured channels, then delete message."""
+        if not checks.db_enabled():
+            return
+
+        async with get_session() as session:
+            channel_ids = (
+                (
+                    await session.execute(
+                        select(JoinPingConfig.channel_id).where(
+                            JoinPingConfig.guild_id == int(member.guild.id)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        for channel_id in channel_ids:
+            channel = member.guild.get_channel(int(channel_id))
+            if not isinstance(channel, disnake.TextChannel):
+                continue
+            try:
+                ping_message = await channel.send(member.mention)
+                await asyncio.sleep(1)
+                await ping_message.delete()
+            except Exception as exc:
+                logger.opt(exception=exc).warning(
+                    "Failed temporary join ping for guild_id={} channel_id={} member_id={}",
+                    member.guild.id,
+                    channel_id,
+                    member.id,
+                )
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: disnake.Member) -> None:

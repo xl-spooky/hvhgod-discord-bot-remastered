@@ -24,6 +24,7 @@ from spooky.ext.constants import (
 )
 from spooky.ext.message import render_buyer_welcome
 from spooky.models.entities.buyers import BuyerChannel, BuyerCode
+from spooky.models.entities.join_pings import JoinPingConfig
 from spooky.models.entities.permissions import AppPermission, UserPermissionOverride
 from sqlalchemy import delete, select
 from thefuzz import process
@@ -384,6 +385,151 @@ class DevtoolCommands(commands.Cog):
                     f"({len(rows)} row(s)). Channel deleted: `{deleted_channel}`."
                 ),
             ),
+            ephemeral=True,
+        )
+
+    @devtool.sub_command(name="createping")
+    async def devtool_createping(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        channel: disnake.TextChannel,
+    ) -> None:
+        """Register a channel for temporary member join pings."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        guild = inter.guild
+        if guild is None:
+            await inter.response.send_message(
+                embed=status_card(False, "This command can only be used in a guild."),
+                ephemeral=True,
+            )
+            return
+
+        async with get_session() as session:
+            existing = (
+                await session.execute(
+                    select(JoinPingConfig.id).where(
+                        JoinPingConfig.guild_id == int(guild.id),
+                        JoinPingConfig.channel_id == int(channel.id),
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                await inter.response.send_message(
+                    embed=status_card(
+                        False, f"{channel.mention} is already configured for join pings."
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            session.add(JoinPingConfig(guild_id=int(guild.id), channel_id=int(channel.id)))
+            await session.flush()
+
+        await inter.response.send_message(
+            embed=status_card(True, f"Enabled temporary join pings in {channel.mention}."),
+            ephemeral=True,
+        )
+
+    @devtool.sub_command(name="deleteping")
+    async def devtool_deleteping(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        channel: disnake.TextChannel,
+    ) -> None:
+        """Remove a channel from temporary member join pings."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        guild = inter.guild
+        if guild is None:
+            await inter.response.send_message(
+                embed=status_card(False, "This command can only be used in a guild."),
+                ephemeral=True,
+            )
+            return
+
+        async with get_session() as session:
+            existing = (
+                await session.execute(
+                    select(JoinPingConfig.id).where(
+                        JoinPingConfig.guild_id == int(guild.id),
+                        JoinPingConfig.channel_id == int(channel.id),
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is None:
+                await inter.response.send_message(
+                    embed=status_card(
+                        False, f"{channel.mention} was not configured for join pings."
+                    ),
+                    ephemeral=True,
+                )
+                return
+
+            await session.execute(
+                delete(JoinPingConfig).where(
+                    JoinPingConfig.guild_id == int(guild.id),
+                    JoinPingConfig.channel_id == int(channel.id),
+                )
+            )
+            await session.flush()
+
+        await inter.response.send_message(
+            embed=status_card(True, f"Disabled temporary join pings in {channel.mention}."),
+            ephemeral=True,
+        )
+
+    @devtool.sub_command(name="pingstatus")
+    async def devtool_pingstatus(self, inter: disnake.AppCmdInter[Spooky]) -> None:
+        """Show configured channels that receive temporary join pings."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        guild = inter.guild
+        if guild is None:
+            await inter.response.send_message(
+                embed=status_card(False, "This command can only be used in a guild."),
+                ephemeral=True,
+            )
+            return
+
+        async with get_session() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(JoinPingConfig.channel_id).where(
+                            JoinPingConfig.guild_id == int(guild.id)
+                        )
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
+        if not rows:
+            await inter.response.send_message(
+                embed=status_card(False, "No join ping channels configured for this guild."),
+                ephemeral=True,
+            )
+            return
+
+        mentions = "\n".join(f"- <#{int(channel_id)}> (`{int(channel_id)}`)" for channel_id in rows)
+        await inter.response.send_message(
+            embed=status_card(True, f"Join ping channels:\n{mentions}", ensure_period=False),
             ephemeral=True,
         )
 
