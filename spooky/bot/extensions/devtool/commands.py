@@ -405,6 +405,8 @@ class DevtoolCommands(commands.Cog):
             )
             return
 
+        await inter.response.defer(ephemeral=True)
+
         payload = render_config_code_update(
             bundle=bundle,
             branch=branch,
@@ -415,7 +417,7 @@ class DevtoolCommands(commands.Cog):
 
         role_id = self._role_for_code_slot(bundle=bundle, branch=branch)
         if role_id is None:
-            await inter.response.send_message(
+            await inter.followup.send(
                 embed=status_card(False, "Unable to resolve code slot role."),
                 ephemeral=True,
             )
@@ -464,7 +466,7 @@ class DevtoolCommands(commands.Cog):
                 await thread.send(f"<@{int(user_id)}>\n{payload}")
                 delivered += 1
 
-        await inter.response.send_message(
+        await inter.followup.send(
             embed=status_card(
                 True,
                 f"Published code update to {delivered}/{len(rows)} CONFIG CODES threads.",
