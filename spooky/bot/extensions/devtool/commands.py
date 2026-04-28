@@ -22,7 +22,7 @@ from spooky.ext.constants import (
     SEMI_RAGE_VISUAL_ROLE_ID,
     VAC_TIPS_CHANNEL_ID,
 )
-from spooky.ext.message import render_buyer_welcome, render_config_code_update
+from spooky.ext.message import render_buyer_welcome
 from spooky.models.entities.buyers import BuyerChannel, BuyerCode
 from spooky.models.entities.permissions import AppPermission, UserPermissionOverride
 from sqlalchemy import delete, select
@@ -397,7 +397,7 @@ class DevtoolCommands(commands.Cog):
         code: str,
         version: str,
     ) -> None:
-        """Publish a code update to all persisted CONFIG CODES buyer threads."""
+        """Update the stored code for a slot without sending any buyer messages."""
         if inter.author.id != OWNER_ID:
             await inter.response.send_message(
                 embed=status_card(False, "Only the configured owner can use /devtool."),
@@ -406,14 +406,6 @@ class DevtoolCommands(commands.Cog):
             return
 
         await inter.response.defer(ephemeral=True)
-
-        payload = render_config_code_update(
-            bundle=bundle,
-            branch=branch,
-            color=color,
-            code=code,
-            version=version,
-        )
 
         role_id = self._role_for_code_slot(bundle=bundle, branch=branch)
         if role_id is None:
@@ -450,26 +442,15 @@ class DevtoolCommands(commands.Cog):
                 existing_code.code = code
                 existing_code.version = version
 
-            rows = (
-                (await session.execute(select(BuyerChannel.user_id, BuyerChannel.config_thread_id)))
-                .tuples()
-                .all()
-            )
             await session.flush()
-
-        delivered = 0
-        for user_id, thread_id in rows:
-            thread = self.bot.get_channel(int(thread_id))
-            if not isinstance(thread, disnake.Thread):
-                continue
-            with suppress(Exception):
-                await thread.send(f"<@{int(user_id)}>\n{payload}")
-                delivered += 1
 
         await inter.followup.send(
             embed=status_card(
                 True,
-                f"Published code update to {delivered}/{len(rows)} CONFIG CODES threads.",
+                (
+                    "Stored code update successfully. "
+                    "Use /devtool sendmembercode or /devtool sendallmembercode to publish updates."
+                ),
             ),
             ephemeral=True,
         )
