@@ -110,7 +110,7 @@ async def main() -> None:
             type=disnake.ActivityType.watching,
             name="Over .gg/hvhgod",
         )
-        status = disnake.Status.online
+        status = disnake.Status.dnd
 
     # Step 4: Intents, caching, and command sync flags.
     intents = disnake.Intents.all()
