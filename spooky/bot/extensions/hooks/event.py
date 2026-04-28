@@ -8,6 +8,7 @@ synchronization is handled through disnakes internal view store.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterable
 from typing import cast
 
@@ -47,6 +48,7 @@ class LifecycleEvents(commands.Cog):
         self.bot = bot
         self._version: str = getattr(bot, "__version__", __version__)
         self._developers: str = getattr(bot, "__developers__", __author__)
+        self._buyer_departure_sync_task: asyncio.Task[None] | None = None
 
     @commands.Cog.listener()
     async def on_ready(self) -> None:
@@ -56,7 +58,23 @@ class LifecycleEvents(commands.Cog):
             self._version,
             self._developers,
         )
-        await self._run_buyer_departure_db_sync()
+        if self._buyer_departure_sync_task is None or self._buyer_departure_sync_task.done():
+            self._buyer_departure_sync_task = self.bot.loop.create_task(
+                self._run_buyer_departure_db_sync_task()
+            )
+        else:
+            logger.debug(
+                "Buyer departure db sync already running; skipping duplicate on_ready launch"
+            )
+
+    async def _run_buyer_departure_db_sync_task(self) -> None:
+        """Run startup buyer-row membership reconciliation as a background task."""
+        try:
+            await self._run_buyer_departure_db_sync()
+        except Exception as exc:
+            logger.opt(exception=exc).error("Buyer departure db sync failed")
+        finally:
+            self._buyer_departure_sync_task = None
 
     async def _send_buyer_departure_warning(
         self,
@@ -96,9 +114,11 @@ class LifecycleEvents(commands.Cog):
             rows = (await session.execute(select(BuyerChannel))).scalars().all()
 
         if not rows:
+            await self._send_buyer_departure_sync_ok(source="db_sync:on_ready")
             return
 
         notified_pairs: set[tuple[int, int]] = set()
+        missing_count = 0
         for row in rows:
             channel = self.bot.get_channel(int(row.channel_id))
             if not isinstance(channel, disnake.abc.GuildChannel | disnake.Thread):
@@ -112,11 +132,34 @@ class LifecycleEvents(commands.Cog):
             if dedupe_key in notified_pairs:
                 continue
             notified_pairs.add(dedupe_key)
+            missing_count += 1
             await self._send_buyer_departure_warning(
                 user_id=int(row.user_id),
                 channel_id=int(row.channel_id),
                 source="db_sync:on_ready",
             )
+
+        if missing_count == 0:
+            await self._send_buyer_departure_sync_ok(source="db_sync:on_ready")
+
+    async def _send_buyer_departure_sync_ok(self, *, source: str) -> None:
+        """Publish a success card when startup buyer-row sync finds no departures."""
+        alert_channel = self.bot.get_channel(BUYER_ALERT_CHANNEL_ID)
+        if not isinstance(alert_channel, Messageable):
+            logger.warning(
+                "Unable to resolve buyer alert channel {}",
+                BUYER_ALERT_CHANNEL_ID,
+            )
+            return
+
+        await alert_channel.send(
+            embed=status_card(
+                True,
+                "Startup buyer sync completed successfully; no missing buyers detected."
+                f" Source: `{source}`.",
+                ensure_period=False,
+            )
+        )
 
     @commands.Cog.listener()
     async def on_member_remove(self, member: disnake.Member) -> None:
