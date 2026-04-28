@@ -476,6 +476,8 @@ class DevtoolCommands(commands.Cog):
             SEMI_RAGE_VISUAL_ROLE_ID,
         }
 
+        await inter.response.defer(ephemeral=True)
+
         async with get_session() as session:
             code_rows = (
                 (
@@ -549,6 +551,8 @@ class DevtoolCommands(commands.Cog):
             SEMI_RAGE_VISUAL_ROLE_ID,
         }
 
+        await inter.response.defer(ephemeral=True)
+
         async with get_session() as session:
             code_rows = (
                 (
@@ -566,9 +570,8 @@ class DevtoolCommands(commands.Cog):
             )
 
         if not buyer_rows:
-            await inter.response.send_message(
+            await inter.edit_original_response(
                 embed=status_card(False, "No buyer channels are stored yet."),
-                ephemeral=True,
             )
             return
 
@@ -597,7 +600,7 @@ class DevtoolCommands(commands.Cog):
                 await config_thread.send(summary)
                 sent += 1
 
-        await inter.response.send_message(
+        await inter.edit_original_response(
             embed=status_card(
                 True,
                 (
@@ -606,7 +609,6 @@ class DevtoolCommands(commands.Cog):
                     f"Missing/inaccessible threads: {missing_threads}."
                 ),
             ),
-            ephemeral=True,
         )
 
     @staticmethod
