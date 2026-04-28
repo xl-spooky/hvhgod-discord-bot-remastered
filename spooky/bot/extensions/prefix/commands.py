@@ -241,8 +241,17 @@ class PrefixCommands(commands.Cog):
         },
     )
     @fakeperms_or_discordperm(AppPermission.MANAGE_ROLES)
-    async def subscriber(self, ctx: SpookyContext, member: disnake.Member) -> None:
+    async def subscriber(self, ctx: SpookyContext, member: disnake.Member | None = None) -> None:
         """Grant the configured subscriber role to a mentioned guild member."""
+        if member is None:
+            prefix = getattr(ctx, "clean_prefix", None) or getattr(ctx, "prefix", "") or ""
+            usage = f"{prefix}subscriber @member".strip()
+            await ctx.error(
+                f"Missing required argument `member`.\nUsage: `{usage}`",
+                ensure_period=False,
+            )
+            return
+
         guild = ctx.guild
         if guild is None:
             await ctx.error("This command can only be used inside a guild.")
