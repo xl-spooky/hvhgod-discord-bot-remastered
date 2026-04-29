@@ -121,7 +121,10 @@ class LifecycleEvents(commands.Cog):
         notified_pairs: set[tuple[int, int]] = set()
         missing_count = 0
         for row in rows:
-            channel = self.bot.get_channel(int(row.channel_id))
+            forum_id = int(row.channels.get("forum", 0))
+            if forum_id == 0:
+                continue
+            channel = self.bot.get_channel(forum_id)
             if not isinstance(channel, disnake.abc.GuildChannel | disnake.Thread):
                 continue
 
@@ -129,14 +132,14 @@ class LifecycleEvents(commands.Cog):
             if guild.get_member(int(row.user_id)) is not None:
                 continue
 
-            dedupe_key = (int(row.user_id), int(row.channel_id))
+            dedupe_key = (int(row.user_id), forum_id)
             if dedupe_key in notified_pairs:
                 continue
             notified_pairs.add(dedupe_key)
             missing_count += 1
             await self._send_buyer_departure_warning(
                 user_id=int(row.user_id),
-                channel_id=int(row.channel_id),
+                channel_id=forum_id,
                 source="db_sync:on_ready",
             )
 
@@ -218,9 +221,10 @@ class LifecycleEvents(commands.Cog):
             return
 
         for row in rows:
+            forum_id = int(row.channels.get("forum", 0))
             await self._send_buyer_departure_warning(
                 user_id=int(member.id),
-                channel_id=int(row.channel_id),
+                channel_id=forum_id,
                 source="event:on_member_remove",
             )
 

@@ -138,8 +138,13 @@ class DevtoolCommands(commands.Cog):
 
         await inter.response.send_message(embed=status_card(True, message), ephemeral=True)
 
-    @devtool.sub_command(name="createbuyer")
-    async def devtool_createbuyer(
+    @devtool.sub_command_group(name="buyer")
+    async def devtool_buyer(self, inter: disnake.AppCmdInter[Spooky]) -> None:
+        """Subcommands for buyer forum lifecycle management."""
+        del inter
+
+    @devtool_buyer.sub_command(name="create")
+    async def devtool_buyer_create(
         self,
         inter: disnake.AppCmdInter[Spooky],
         member: disnake.Member,
@@ -215,8 +220,9 @@ class DevtoolCommands(commands.Cog):
             vac_tips_channel_mention=vac_tips_channel,
         )
 
-        await forum.create_thread(name="INTRODUCTION", content=welcome_message)
-        await forum.create_thread(
+        intro_result = await forum.create_thread(name="INTRODUCTION", content=welcome_message)
+        intro_thread = self._extract_created_thread(intro_result)
+        contact_result = await forum.create_thread(
             name="CONTACT US",
             content=(
                 f"{member.mention}\n"
@@ -224,14 +230,18 @@ class DevtoolCommands(commands.Cog):
                 "have account questions, or need support."
             ),
         )
+        contact_thread = self._extract_created_thread(contact_result)
         config_thread_result = await forum.create_thread(
             name="CONFIG CODES",
             content="Config codes for this buyer will be posted in this thread.",
         )
         config_thread = self._extract_created_thread(config_thread_result)
-        if config_thread is None:
+        if intro_thread is None or contact_thread is None or config_thread is None:
             await inter.followup.send(
-                embed=status_card(False, "Failed to resolve CONFIG CODES thread for persistence."),
+                embed=status_card(
+                    False,
+                    "Failed to resolve created buyer threads for persistence.",
+                ),
                 ephemeral=True,
             )
             return
@@ -240,8 +250,12 @@ class DevtoolCommands(commands.Cog):
             session.add(
                 BuyerChannel(
                     user_id=int(member.id),
-                    channel_id=int(forum.id),
-                    config_thread_id=int(config_thread.id),
+                    channels={
+                        "forum": int(forum.id),
+                        "introduction_thread": int(intro_thread.id),
+                        "contact_thread": int(contact_thread.id),
+                        "config_codes_thread": int(config_thread.id),
+                    },
                 )
             )
             await session.flush()
@@ -254,13 +268,14 @@ class DevtoolCommands(commands.Cog):
             ephemeral=True,
         )
 
-    @devtool.sub_command(name="removebuyer")
-    async def devtool_removebuyer(
+    @devtool_buyer.sub_command(name="remove")
+    async def devtool_buyer_remove(
         self,
         inter: disnake.AppCmdInter[Spooky],
-        member: disnake.Member,
+        member: disnake.Member | None = None,
+        channel_id: str | None = None,
     ) -> None:
-        """Delete buyer forum channels and DB rows associated with a member."""
+        """Delete a buyer forum and DB rows by member and/or channel lookup."""
         if inter.author.id != OWNER_ID:
             await inter.response.send_message(
                 embed=status_card(False, "Only the configured owner can use /devtool."),
@@ -268,48 +283,65 @@ class DevtoolCommands(commands.Cog):
             )
             return
 
+        if member is None and (channel_id is None or not channel_id.strip()):
+            await inter.response.send_message(
+                embed=status_card(False, "Provide at least one lookup: member or channel_id."),
+                ephemeral=True,
+            )
+            return
+        parsed_channel_id: int | None = None
+        if channel_id is not None and channel_id.strip():
+            raw = channel_id.strip()
+            if not raw.isdigit():
+                await inter.response.send_message(
+                    embed=status_card(False, "channel_id must be a valid numeric snowflake."),
+                    ephemeral=True,
+                )
+                return
+            parsed_channel_id = int(raw)
         await inter.response.defer(ephemeral=True)
 
         async with get_session() as session:
-            rows = (
-                (
-                    await session.execute(
-                        select(BuyerChannel).where(BuyerChannel.user_id == int(member.id))
-                    )
-                )
-                .scalars()
-                .all()
-            )
+            rows = (await session.execute(select(BuyerChannel))).scalars().all()
+            if member is not None:
+                rows = [row for row in rows if int(row.user_id) == int(member.id)]
+            if parsed_channel_id is not None:
+                rows = [
+                    row
+                    for row in rows
+                    if parsed_channel_id in {int(value) for value in row.channels.values()}
+                ]
 
             if not rows:
                 await inter.followup.send(
-                    embed=status_card(False, f"No buyer channels recorded for {member.mention}."),
+                    embed=status_card(False, "No buyer record matched the provided lookup."),
                     ephemeral=True,
                 )
                 return
 
             deleted_channels = 0
             for row in rows:
-                channel = self.bot.get_channel(int(row.channel_id))
-                if channel is None:
-                    continue
-                if not isinstance(channel, disnake.abc.GuildChannel | disnake.Thread):
-                    continue
-                with suppress(Exception):
-                    await channel.delete(reason=f"removebuyer requested for {member}")
-                    deleted_channels += 1
+                for saved_channel_id in {int(value) for value in row.channels.values()}:
+                    channel = self.bot.get_channel(saved_channel_id)
+                    if channel is None:
+                        with suppress(Exception):
+                            channel = await self.bot.fetch_channel(saved_channel_id)
+                    if not isinstance(channel, disnake.abc.GuildChannel | disnake.Thread):
+                        continue
+                    with suppress(Exception):
+                        await channel.delete(reason=f"buyer remove requested by {inter.author}")
+                        deleted_channels += 1
 
-            await session.execute(
-                delete(BuyerChannel).where(BuyerChannel.user_id == int(member.id))
-            )
+            row_ids = [row.id for row in rows]
+            await session.execute(delete(BuyerChannel).where(BuyerChannel.id.in_(row_ids)))
             await session.flush()
 
         await inter.followup.send(
             embed=status_card(
                 True,
                 (
-                    f"Removed buyer records for {member.mention}. "
-                    f"Deleted channels: {deleted_channels}/{len(rows)}"
+                    f"Removed buyer record(s): {len(rows)}. "
+                    f"Deleted channels/threads: {deleted_channels}"
                 ),
             ),
             ephemeral=True,
@@ -336,18 +368,21 @@ class DevtoolCommands(commands.Cog):
             deleted_channels = 0
             missing_or_failed = 0
             for row in buyer_rows:
-                channel = self.bot.get_channel(int(row.channel_id))
-                if channel is None:
-                    with suppress(Exception):
-                        channel = await self.bot.fetch_channel(int(row.channel_id))
-                if isinstance(channel, disnake.abc.GuildChannel | disnake.Thread):
-                    with suppress(Exception):
-                        await channel.delete(
-                            reason=f"wipebuyerdata requested by {inter.author} ({inter.author.id})"
-                        )
-                        deleted_channels += 1
-                        continue
-                missing_or_failed += 1
+                for saved_channel_id in {int(value) for value in row.channels.values()}:
+                    channel = self.bot.get_channel(saved_channel_id)
+                    if channel is None:
+                        with suppress(Exception):
+                            channel = await self.bot.fetch_channel(saved_channel_id)
+                    if isinstance(channel, disnake.abc.GuildChannel | disnake.Thread):
+                        with suppress(Exception):
+                            await channel.delete(
+                                reason=(
+                                    f"wipebuyerdata requested by {inter.author} ({inter.author.id})"
+                                )
+                            )
+                            deleted_channels += 1
+                            continue
+                    missing_or_failed += 1
 
             buyer_row_count = len(buyer_rows)
             buyer_code_count = len((await session.execute(select(BuyerCode.id))).scalars().all())
@@ -365,79 +400,6 @@ class DevtoolCommands(commands.Cog):
                     f"Buyer rows cleared: {buyer_row_count}. "
                     f"Code rows cleared: {buyer_code_count}. "
                     f"Missing/failed channel deletions: {missing_or_failed}."
-                ),
-            ),
-            ephemeral=True,
-        )
-
-    @devtool.sub_command(name="removebuyerchannel")
-    async def devtool_removebuyerchannel(
-        self,
-        inter: disnake.AppCmdInter[Spooky],
-        channel_id: str,
-    ) -> None:
-        """Delete a buyer forum + DB rows by persisted buyer channel ID."""
-        if inter.author.id != OWNER_ID:
-            await inter.response.send_message(
-                embed=status_card(False, "Only the configured owner can use /devtool."),
-                ephemeral=True,
-            )
-            return
-
-        raw_channel_id = channel_id.strip()
-        if not raw_channel_id.isdigit():
-            await inter.response.send_message(
-                embed=status_card(False, "Channel ID must be a valid numeric snowflake."),
-                ephemeral=True,
-            )
-            return
-
-        target_channel_id = int(raw_channel_id)
-        await inter.response.defer(ephemeral=True)
-
-        async with get_session() as session:
-            rows = (
-                (
-                    await session.execute(
-                        select(BuyerChannel).where(BuyerChannel.channel_id == target_channel_id)
-                    )
-                )
-                .scalars()
-                .all()
-            )
-            if not rows:
-                await inter.followup.send(
-                    embed=status_card(
-                        False,
-                        f"No buyer record found for channel `{target_channel_id}`.",
-                    ),
-                    ephemeral=True,
-                )
-                return
-
-            deleted_channel = False
-            channel = self.bot.get_channel(target_channel_id)
-            if channel is None:
-                with suppress(Exception):
-                    channel = await self.bot.fetch_channel(target_channel_id)
-            if isinstance(channel, disnake.abc.GuildChannel | disnake.Thread):
-                with suppress(Exception):
-                    await channel.delete(
-                        reason=f"removebuyerchannel requested by {inter.author} ({inter.author.id})"
-                    )
-                    deleted_channel = True
-
-            await session.execute(
-                delete(BuyerChannel).where(BuyerChannel.channel_id == target_channel_id)
-            )
-            await session.flush()
-
-        await inter.followup.send(
-            embed=status_card(
-                True,
-                (
-                    f"Removed buyer rows for channel `{target_channel_id}` "
-                    f"({len(rows)} row(s)). Channel deleted: `{deleted_channel}`."
                 ),
             ),
             ephemeral=True,
@@ -689,9 +651,9 @@ class DevtoolCommands(commands.Cog):
                 .scalars()
                 .all()
             )
-            config_thread_id = (
+            channels = (
                 await session.execute(
-                    select(BuyerChannel.config_thread_id)
+                    select(BuyerChannel.channels)
                     .where(BuyerChannel.user_id == int(member.id))
                     .limit(1)
                 )
@@ -700,13 +662,13 @@ class DevtoolCommands(commands.Cog):
         code_by_role = self._group_codes_by_role(code_rows)
         summary = self._build_member_code_summary(member=member, code_by_role=code_by_role)
 
-        if config_thread_id is None:
+        if channels is None or "config_codes_thread" not in channels:
             await inter.edit_original_response(
                 embed=status_card(False, f"No CONFIG CODES thread is stored for {member.mention}."),
             )
             return
 
-        config_thread = self.bot.get_channel(int(config_thread_id))
+        config_thread = self.bot.get_channel(int(channels["config_codes_thread"]))
         if not isinstance(config_thread, disnake.Thread):
             await inter.edit_original_response(
                 embed=status_card(False, "Stored CONFIG CODES thread is missing or inaccessible."),
@@ -762,7 +724,7 @@ class DevtoolCommands(commands.Cog):
                 .all()
             )
             buyer_rows = (
-                (await session.execute(select(BuyerChannel.user_id, BuyerChannel.config_thread_id)))
+                (await session.execute(select(BuyerChannel.user_id, BuyerChannel.channels)))
                 .tuples()
                 .all()
             )
@@ -778,13 +740,13 @@ class DevtoolCommands(commands.Cog):
         missing_threads = 0
         missing_members = 0
 
-        for user_id, config_thread_id in buyer_rows:
+        for user_id, channels in buyer_rows:
             member = guild.get_member(int(user_id))
             if member is None:
                 missing_members += 1
                 continue
 
-            config_thread = self.bot.get_channel(int(config_thread_id))
+            config_thread = self.bot.get_channel(int(channels["config_codes_thread"]))
             if not isinstance(config_thread, disnake.Thread):
                 missing_threads += 1
                 continue
