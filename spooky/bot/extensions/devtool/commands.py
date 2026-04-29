@@ -320,7 +320,7 @@ class DevtoolCommands(commands.Cog):
         self,
         inter: disnake.AppCmdInter[Spooky],
     ) -> None:
-        """Delete all buyer forum channels and clear all buyer model data."""
+        """Delete all buyer channels and clear all buyer model data."""
         if inter.author.id != OWNER_ID:
             await inter.response.send_message(
                 embed=status_card(False, "Only the configured owner can use /devtool."),
@@ -333,19 +333,19 @@ class DevtoolCommands(commands.Cog):
         async with get_session() as session:
             buyer_rows = (await session.execute(select(BuyerChannel))).scalars().all()
 
-            deleted_forums = 0
+            deleted_channels = 0
             missing_or_failed = 0
             for row in buyer_rows:
                 channel = self.bot.get_channel(int(row.channel_id))
                 if channel is None:
                     with suppress(Exception):
                         channel = await self.bot.fetch_channel(int(row.channel_id))
-                if isinstance(channel, disnake.ForumChannel):
+                if isinstance(channel, disnake.abc.GuildChannel | disnake.Thread):
                     with suppress(Exception):
                         await channel.delete(
                             reason=f"wipebuyerdata requested by {inter.author} ({inter.author.id})"
                         )
-                        deleted_forums += 1
+                        deleted_channels += 1
                         continue
                 missing_or_failed += 1
 
@@ -361,10 +361,10 @@ class DevtoolCommands(commands.Cog):
                 True,
                 (
                     "Buyer wipe complete. "
-                    f"Deleted forums: {deleted_forums}/{buyer_row_count}. "
-                    f"Forum rows cleared: {buyer_row_count}. "
+                    f"Deleted channels: {deleted_channels}/{buyer_row_count}. "
+                    f"Buyer rows cleared: {buyer_row_count}. "
                     f"Code rows cleared: {buyer_code_count}. "
-                    f"Missing/failed forum deletions: {missing_or_failed}."
+                    f"Missing/failed channel deletions: {missing_or_failed}."
                 ),
             ),
             ephemeral=True,
