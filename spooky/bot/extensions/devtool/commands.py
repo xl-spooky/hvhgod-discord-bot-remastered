@@ -490,8 +490,7 @@ class DevtoolCommands(commands.Cog):
             await member.remove_roles(
                 *roles_to_remove,
                 reason=(
-                    "removebuyerroles auto-cleanup requested by "
-                    f"{inter.author} ({inter.author.id})"
+                    f"removebuyerroles auto-cleanup requested by {inter.author} ({inter.author.id})"
                 ),
             )
             removed_count += 1
