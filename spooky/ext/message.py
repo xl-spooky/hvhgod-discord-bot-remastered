@@ -18,6 +18,23 @@ CONFIG_CODE_TEMPLATE = (
     "- **Code:** ||{code}||"
 )
 
+BOOSTING_SERVICES_TEMPLATE = (
+    "# BOOSTING SERVICES\n\n"
+    "We offer fast and reliable boosting services with safe procedures.\n\n"
+    "## PRICING\n"
+    "- Standard Boost Game: 1€\n"
+    "- Yellow Trust Boost (Perma Yellow): 1.5€ / game\n"
+    "- Red Trust Boost: 2€ / game\n\n"
+    "## HOW IT WORKS\n"
+    "We do NOT require your account credentials.\n\n"
+    "Login is done securely via Steam QR Code only.\n\n"
+    "## NOTES\n"
+    "- Prices are per game\n"
+    "- Make sure to specify your current trust factor before starting\n"
+    "- Fast handling & consistent service\n\n"
+    "Open a ticket to get started."
+)
+
 
 def render_buyer_welcome(*, user_mention: str, vac_tips_channel_mention: str) -> str:
     """Return the buyer welcome message with runtime placeholders resolved."""
@@ -45,9 +62,16 @@ def render_config_code_update(
     )
 
 
+def render_boosting_services_message() -> str:
+    """Return the standard BOOSTING SERVICES thread payload."""
+    return BOOSTING_SERVICES_TEMPLATE
+
+
 __all__ = [
+    "BOOSTING_SERVICES_TEMPLATE",
     "BUYER_WELCOME_TEMPLATE",
     "CONFIG_CODE_TEMPLATE",
+    "render_boosting_services_message",
     "render_buyer_welcome",
     "render_config_code_update",
 ]
