@@ -405,6 +405,50 @@ class DevtoolCommands(commands.Cog):
             ephemeral=True,
         )
 
+    @devtool.sub_command(name="removebuyerroles")
+    async def devtool_removebuyerroles(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        member: disnake.Member,
+    ) -> None:
+        """Remove buyer-related product roles from a member."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        role_ids_to_remove = {
+            REQUIRED_BUYER_ROLE_ID,
+            SEMI_LEGIT_MAIN_ROLE_ID,
+            SEMI_LEGIT_VISUAL_ROLE_ID,
+            SEMI_RAGE_MAIN_ROLE_ID,
+            SEMI_RAGE_VISUAL_ROLE_ID,
+        }
+        roles_to_remove = [role for role in member.roles if role.id in role_ids_to_remove]
+
+        if not roles_to_remove:
+            await inter.response.send_message(
+                embed=status_card(False, f"{member.mention} has none of the tracked buyer roles."),
+                ephemeral=True,
+            )
+            return
+
+        await member.remove_roles(
+            *roles_to_remove,
+            reason=(f"removebuyerroles requested by {inter.author} ({inter.author.id})"),
+        )
+
+        removed_roles_text = ", ".join(role.mention for role in roles_to_remove)
+        await inter.response.send_message(
+            embed=status_card(
+                True,
+                f"Removed roles from {member.mention}: {removed_roles_text}",
+            ),
+            ephemeral=True,
+        )
+
     @devtool.sub_command(name="removebuyerchannel")
     async def devtool_removebuyerchannel(
         self,
