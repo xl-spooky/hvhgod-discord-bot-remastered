@@ -38,7 +38,7 @@ class BuyerCode(Base):
     role_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
     bundle: Mapped[str] = mapped_column(String(32), nullable=False)
     branch: Mapped[str] = mapped_column(String(16), nullable=False)
-    color: Mapped[str] = mapped_column(String(32), nullable=False)
+    color: Mapped[str | None] = mapped_column(String(32), nullable=True)
     version: Mapped[str] = mapped_column(String(32), nullable=False)
     code: Mapped[str] = mapped_column(String(512), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(

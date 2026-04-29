@@ -562,7 +562,7 @@ class DevtoolCommands(commands.Cog):
         product: CodeProductOption,
         bundle: CodeBundleOption,
         branch: CodeBranchOption,
-        color: CodeColorOption,
+        color: CodeColorOption | None,
         code: str,
         version: str,
     ) -> None:
@@ -591,7 +591,7 @@ class DevtoolCommands(commands.Cog):
                     .where(
                         BuyerCode.product == product,
                         BuyerCode.role_id == int(role_id),
-                        BuyerCode.color == color,
+                        BuyerCode.color.is_(color) if color is None else BuyerCode.color == color,
                     )
                     .limit(1)
                 )
@@ -657,7 +657,6 @@ class DevtoolCommands(commands.Cog):
         inter: disnake.AppCmdInter[Spooky],
         bundle: CodeBundleOption,
         branch: CodeBranchOption,
-        color: CodeColorOption,
         code: str,
         version: str,
     ) -> None:
@@ -667,7 +666,7 @@ class DevtoolCommands(commands.Cog):
             product="fatality",
             bundle=bundle,
             branch=branch,
-            color=color,
+            color=None,
             code=code,
             version=version,
         )
@@ -855,10 +854,12 @@ class DevtoolCommands(commands.Cog):
             rows = codes_by_product_role.get(product, {}).get(role_id, [])
             if not rows:
                 return "⚠️ Not configured yet."
-            ordered = sorted(rows, key=lambda item: item.color.lower())
+            ordered = sorted(rows, key=lambda item: (item.color or "").lower())
             lines: list[str] = []
             for row in ordered:
-                lines.append(f"- **{row.color}** • Version `{row.version}`\n  Code: ||{row.code}||")
+                color_prefix = f"**{row.color}** • " if row.color else ""
+                code_value = f"||{row.code}||" if product == "memesense" else row.code
+                lines.append(f"- {color_prefix}Version `{row.version}`\n  Code: {code_value}")
             return "\n".join(lines)
 
         note_prefix = f"## NOTE\n{note.strip()}\n\n" if note is not None and note.strip() else ""
