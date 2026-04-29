@@ -33,6 +33,7 @@ PermissionAction = Literal["Add", "Remove"]
 CodeBundleOption = Literal["Semi-Legit", "Semi-Rage"]
 CodeBranchOption = Literal["Main Branch", "Visual"]
 CodeColorOption = Literal["Pink", "Purple", "Yellow", "Blue", "Red", "Black & White"]
+CodeProductOption = Literal["memesense", "fatality"]
 FUZZY_PERMISSION_SCORE_THRESHOLD = 65
 MAX_PERMISSION_CHOICES = 25
 
@@ -550,10 +551,15 @@ class DevtoolCommands(commands.Cog):
             ephemeral=True,
         )
 
-    @devtool.sub_command(name="setcode")
-    async def devtool_setcode(
+    @devtool.sub_command_group(name="setcode")
+    async def devtool_setcode(self, inter: disnake.AppCmdInter[Spooky]) -> None:
+        """Subcommands for storing product config codes."""
+        del inter
+
+    async def _setcode_for_product(
         self,
         inter: disnake.AppCmdInter[Spooky],
+        product: CodeProductOption,
         bundle: CodeBundleOption,
         branch: CodeBranchOption,
         color: CodeColorOption,
@@ -582,7 +588,11 @@ class DevtoolCommands(commands.Cog):
             existing_code = (
                 await session.execute(
                     select(BuyerCode)
-                    .where(BuyerCode.role_id == int(role_id), BuyerCode.color == color)
+                    .where(
+                        BuyerCode.product == product,
+                        BuyerCode.role_id == int(role_id),
+                        BuyerCode.color == color,
+                    )
                     .limit(1)
                 )
             ).scalar_one_or_none()
@@ -591,6 +601,7 @@ class DevtoolCommands(commands.Cog):
                 session.add(
                     BuyerCode(
                         role_id=int(role_id),
+                        product=product,
                         bundle=bundle,
                         branch=branch,
                         color=color,
@@ -600,6 +611,7 @@ class DevtoolCommands(commands.Cog):
                 )
             else:
                 existing_code.bundle = bundle
+                existing_code.product = product
                 existing_code.branch = branch
                 existing_code.color = color
                 existing_code.code = code
@@ -616,6 +628,48 @@ class DevtoolCommands(commands.Cog):
                 ),
             ),
             ephemeral=True,
+        )
+
+    @devtool_setcode.sub_command(name="memesense")
+    async def devtool_setcode_memesense(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        bundle: CodeBundleOption,
+        branch: CodeBranchOption,
+        color: CodeColorOption,
+        code: str,
+        version: str,
+    ) -> None:
+        """Update stored Memesense config code for a slot."""
+        await self._setcode_for_product(
+            inter=inter,
+            product="memesense",
+            bundle=bundle,
+            branch=branch,
+            color=color,
+            code=code,
+            version=version,
+        )
+
+    @devtool_setcode.sub_command(name="fatality")
+    async def devtool_setcode_fatality(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        bundle: CodeBundleOption,
+        branch: CodeBranchOption,
+        color: CodeColorOption,
+        code: str,
+        version: str,
+    ) -> None:
+        """Update stored Fatality config code for a slot."""
+        await self._setcode_for_product(
+            inter=inter,
+            product="fatality",
+            bundle=bundle,
+            branch=branch,
+            color=color,
+            code=code,
+            version=version,
         )
 
     @devtool.sub_command(name="sendmembercode")
@@ -659,8 +713,11 @@ class DevtoolCommands(commands.Cog):
                 )
             ).scalar_one_or_none()
 
-        code_by_role = self._group_codes_by_role(code_rows)
-        summary = self._build_member_code_summary(member=member, code_by_role=code_by_role)
+        codes_by_product_role = self._group_codes_by_product_and_role(code_rows)
+        summary = self._build_member_code_summary(
+            member=member,
+            codes_by_product_role=codes_by_product_role,
+        )
 
         if channels is None or "config_codes_thread" not in channels:
             await inter.edit_original_response(
@@ -735,7 +792,7 @@ class DevtoolCommands(commands.Cog):
             )
             return
 
-        code_by_role = self._group_codes_by_role(code_rows)
+        codes_by_product_role = self._group_codes_by_product_and_role(code_rows)
         sent = 0
         missing_threads = 0
         missing_members = 0
@@ -753,7 +810,7 @@ class DevtoolCommands(commands.Cog):
 
             summary = self._build_member_code_summary(
                 member=member,
-                code_by_role=code_by_role,
+                codes_by_product_role=codes_by_product_role,
                 note=note,
             )
             with suppress(Exception):
@@ -772,27 +829,30 @@ class DevtoolCommands(commands.Cog):
         )
 
     @staticmethod
-    def _group_codes_by_role(rows: Sequence[BuyerCode]) -> dict[int, list[BuyerCode]]:
-        """Group code rows by role id for summary rendering."""
-        grouped: dict[int, list[BuyerCode]] = {}
+    def _group_codes_by_product_and_role(
+        rows: Sequence[BuyerCode],
+    ) -> dict[str, dict[int, list[BuyerCode]]]:
+        """Group code rows by product then role id for summary rendering."""
+        grouped: dict[str, dict[int, list[BuyerCode]]] = {}
         for row in rows:
-            grouped.setdefault(int(row.role_id), []).append(row)
+            product_bucket = grouped.setdefault(row.product.lower(), {})
+            product_bucket.setdefault(int(row.role_id), []).append(row)
         return grouped
 
     @staticmethod
     def _build_member_code_summary(
         *,
         member: disnake.Member,
-        code_by_role: dict[int, list[BuyerCode]],
+        codes_by_product_role: dict[str, dict[int, list[BuyerCode]]],
         note: str | None = None,
     ) -> str:
         """Render the standard role-based config summary for a member."""
         member_role_ids = {int(role.id) for role in member.roles}
 
-        def _slot(role_id: int) -> str:
+        def _slot(product: str, role_id: int) -> str:
             if role_id not in member_role_ids:
                 return "Open ticket to purchase the config."
-            rows = code_by_role.get(role_id, [])
+            rows = codes_by_product_role.get(product, {}).get(role_id, [])
             if not rows:
                 return "⚠️ Not configured yet."
             ordered = sorted(rows, key=lambda item: item.color.lower())
@@ -804,18 +864,28 @@ class DevtoolCommands(commands.Cog):
         note_prefix = f"## NOTE\n{note.strip()}\n\n" if note is not None and note.strip() else ""
         return (
             f"{note_prefix}"
-            "## LATEST CONFIG ACCESS\n"
+            "## CONFIG ACCESS SUMMARY\n"
             f"{member.mention}\n\n"
             "Your currently available config codes are listed below "
             "based on your assigned roles.\n\n"
+            "# Memesense\n"
             "### Semi-Legit • Main Branch\n"
-            f"{_slot(SEMI_LEGIT_MAIN_ROLE_ID)}\n\n"
+            f"{_slot('memesense', SEMI_LEGIT_MAIN_ROLE_ID)}\n\n"
             "### Semi-Legit • Visuals Add-On\n"
-            f"{_slot(SEMI_LEGIT_VISUAL_ROLE_ID)}\n\n"
+            f"{_slot('memesense', SEMI_LEGIT_VISUAL_ROLE_ID)}\n\n"
             "### Semi-Rage • Main Branch\n"
-            f"{_slot(SEMI_RAGE_MAIN_ROLE_ID)}\n\n"
+            f"{_slot('memesense', SEMI_RAGE_MAIN_ROLE_ID)}\n\n"
             "### Semi-Rage • Visuals Add-On\n"
-            f"{_slot(SEMI_RAGE_VISUAL_ROLE_ID)}"
+            f"{_slot('memesense', SEMI_RAGE_VISUAL_ROLE_ID)}\n\n"
+            "# Fatality\n"
+            "### Semi-Legit • Main Branch\n"
+            f"{_slot('fatality', SEMI_LEGIT_MAIN_ROLE_ID)}\n\n"
+            "### Semi-Legit • Visuals Add-On\n"
+            f"{_slot('fatality', SEMI_LEGIT_VISUAL_ROLE_ID)}\n\n"
+            "### Semi-Rage • Main Branch\n"
+            f"{_slot('fatality', SEMI_RAGE_MAIN_ROLE_ID)}\n\n"
+            "### Semi-Rage • Visuals Add-On\n"
+            f"{_slot('fatality', SEMI_RAGE_VISUAL_ROLE_ID)}"
         )
 
     @staticmethod

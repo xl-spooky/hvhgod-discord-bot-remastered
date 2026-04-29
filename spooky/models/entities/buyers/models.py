@@ -31,9 +31,10 @@ class BuyerCode(Base):
     """Store latest code payload per access role."""
 
     __tablename__ = "buyer_codes"
-    __table_args__ = (UniqueConstraint("role_id", "color"),)
+    __table_args__ = (UniqueConstraint("product", "role_id", "color"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    product: Mapped[str] = mapped_column(String(32), nullable=False, default="memesense")
     role_id: Mapped[int] = mapped_column(BigInteger, index=True, nullable=False)
     bundle: Mapped[str] = mapped_column(String(32), nullable=False)
     branch: Mapped[str] = mapped_column(String(16), nullable=False)
