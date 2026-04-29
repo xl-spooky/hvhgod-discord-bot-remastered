@@ -13,6 +13,7 @@ from spooky.core.checks import fakeperms_or_discordperm
 from spooky.db import get_session
 from spooky.ext.components.v2.card import status_card
 from spooky.ext.constants import (
+    BUYER_ALERT_CHANNEL_ID,
     DEFAULT_BUYER_CATEGORY_ID,
     OWNER_ID,
     REQUIRED_BUYER_ROLE_ID,
@@ -251,6 +252,135 @@ class DevtoolCommands(commands.Cog):
                 True,
                 f"Created buyer forum {forum.mention} for {member.mention}",
             ),
+            ephemeral=True,
+        )
+
+    @devtool.sub_command(name="auditbuyerchannels")
+    async def devtool_auditbuyerchannels(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+    ) -> None:
+        """Report buyer-role members whose buyer forum is missing or in the wrong category."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        guild = inter.guild
+        if guild is None:
+            await inter.response.send_message(
+                embed=status_card(False, "This command can only be used in a guild."),
+                ephemeral=True,
+            )
+            return
+
+        await inter.response.defer(ephemeral=True)
+
+        buyer_members = [
+            member
+            for member in guild.members
+            if any(role.id == REQUIRED_BUYER_ROLE_ID for role in member.roles)
+        ]
+        buyer_user_ids = {int(member.id) for member in buyer_members}
+
+        async with get_session() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(BuyerChannel.user_id, BuyerChannel.channel_id).where(
+                            BuyerChannel.user_id.in_(buyer_user_ids)
+                        )
+                    )
+                )
+                .tuples()
+                .all()
+            )
+
+        channel_by_user_id = {int(user_id): int(channel_id) for user_id, channel_id in rows}
+        flagged_mentions: list[str] = []
+
+        for member in buyer_members:
+            channel_id = channel_by_user_id.get(int(member.id))
+            if channel_id is None:
+                flagged_mentions.append(member.mention)
+                continue
+
+            channel = guild.get_channel(channel_id)
+            if not isinstance(channel, disnake.ForumChannel):
+                flagged_mentions.append(member.mention)
+                continue
+
+            if channel.category_id != DEFAULT_BUYER_CATEGORY_ID:
+                flagged_mentions.append(member.mention)
+
+        alert_channel = guild.get_channel(BUYER_ALERT_CHANNEL_ID)
+        if not isinstance(alert_channel, disnake.TextChannel):
+            await inter.edit_original_response(
+                embed=status_card(False, "Buyer alert channel is missing or not a text channel."),
+            )
+            return
+
+        if not flagged_mentions:
+            await alert_channel.send(
+                "✅ Buyer audit complete: every buyer with the buyer role has "
+                "a forum under the buyer category."
+            )
+            await inter.edit_original_response(
+                embed=status_card(True, "Audit complete. No issues found."),
+            )
+            return
+
+        await alert_channel.send(
+            "⚠️ Buyer audit found members missing buyer channels under the buyer category:\n"
+            + "\n".join(f"- {mention}" for mention in flagged_mentions)
+        )
+        await inter.edit_original_response(
+            embed=status_card(
+                True,
+                "Audit complete. Sent "
+                f"{len(flagged_mentions)} flagged member(s) to {alert_channel.mention}.",
+            )
+        )
+
+    @devtool.sub_command(name="removebuyerroles")
+    async def devtool_removebuyerroles(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        member: disnake.Member,
+    ) -> None:
+        """Remove buyer access roles from a member in one action."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        roles_to_remove = {
+            REQUIRED_BUYER_ROLE_ID,
+            SEMI_LEGIT_MAIN_ROLE_ID,
+            SEMI_LEGIT_VISUAL_ROLE_ID,
+            SEMI_RAGE_MAIN_ROLE_ID,
+            SEMI_RAGE_VISUAL_ROLE_ID,
+        }
+        assigned_roles = [role for role in member.roles if role.id in roles_to_remove]
+
+        if not assigned_roles:
+            await inter.response.send_message(
+                embed=status_card(False, f"{member.mention} has none of the buyer access roles."),
+                ephemeral=True,
+            )
+            return
+
+        await member.remove_roles(
+            *assigned_roles,
+            reason=f"removebuyerroles requested by {inter.author} ({inter.author.id})",
+        )
+        removed_names = ", ".join(f"`{role.name}`" for role in assigned_roles)
+        await inter.response.send_message(
+            embed=status_card(True, f"Removed roles from {member.mention}: {removed_names}"),
             ephemeral=True,
         )
 
