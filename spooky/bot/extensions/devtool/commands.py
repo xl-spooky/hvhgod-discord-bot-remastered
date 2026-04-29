@@ -38,6 +38,7 @@ CodeColorOption = Literal["Pink", "Purple", "Yellow", "Blue", "Red", "Black & Wh
 CodeProductOption = Literal["memesense", "fatality"]
 FUZZY_PERMISSION_SCORE_THRESHOLD = 65
 MAX_PERMISSION_CHOICES = 25
+BUYER_AUDIT_MISSING_PREVIEW_LIMIT = 20
 
 __all__ = ["DevtoolCommands"]
 
@@ -327,9 +328,8 @@ class DevtoolCommands(commands.Cog):
                 ]
 
             if not rows:
-                await inter.followup.send(
-                    embed=status_card(False, "No buyer record matched the provided lookup."),
-                    ephemeral=True,
+                await inter.edit_original_response(
+                    embed=status_card(False, "No buyer record matched the provided lookup.")
                 )
                 return
 
@@ -350,16 +350,79 @@ class DevtoolCommands(commands.Cog):
             await session.execute(delete(BuyerChannel).where(BuyerChannel.id.in_(row_ids)))
             await session.flush()
 
-        await inter.followup.send(
+        await inter.edit_original_response(
             embed=status_card(
                 True,
                 (
                     f"Removed buyer record(s): {len(rows)}. "
                     f"Deleted channels/threads: {deleted_channels}"
                 ),
-            ),
-            ephemeral=True,
+            )
         )
+
+    @devtool_buyer.sub_command(name="audit")
+    async def devtool_buyer_audit(self, inter: disnake.AppCmdInter[Spooky]) -> None:
+        """Quick lookup of buyer-role members and private buyer channel coverage."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        guild = inter.guild
+        if guild is None:
+            await inter.response.send_message(
+                embed=status_card(False, "This command can only be used in a guild."),
+                ephemeral=True,
+            )
+            return
+
+        await inter.response.defer(ephemeral=True)
+
+        buyer_role = guild.get_role(REQUIRED_BUYER_ROLE_ID)
+        buyer_members = [
+            member
+            for member in guild.members
+            if any(role.id == REQUIRED_BUYER_ROLE_ID for role in member.roles)
+        ]
+
+        async with get_session() as session:
+            rows = (await session.execute(select(BuyerChannel))).scalars().all()
+
+        records_by_user: dict[int, BuyerChannel] = {int(row.user_id): row for row in rows}
+        missing_users = [member for member in buyer_members if member.id not in records_by_user]
+
+        invalid_records = 0
+        for row in rows:
+            channel_ids = {int(value) for value in row.channels.values()}
+            if not channel_ids:
+                invalid_records += 1
+                continue
+            forum_id = int(row.channels.get("forum", 0))
+            forum = guild.get_channel(forum_id) if forum_id else None
+            if not isinstance(forum, disnake.ForumChannel):
+                invalid_records += 1
+
+        status_icon = "✅" if not missing_users and invalid_records == 0 else "⚠️"
+        buyer_role_label = buyer_role.mention if buyer_role else "not found in guild"
+        summary = (
+            f"{status_icon} Buyer audit complete\n"
+            f"Buyer role id: `{REQUIRED_BUYER_ROLE_ID}` ({buyer_role_label})\n"
+            f"Buyer-role members: `{len(buyer_members)}`\n"
+            f"Stored buyer records: `{len(rows)}`\n"
+            f"Members missing private buyer channel record: `{len(missing_users)}`\n"
+            f"Invalid/stale buyer records: `{invalid_records}`"
+        )
+        if missing_users:
+            summary += "\nMissing members: " + ", ".join(
+                member.mention for member in missing_users[:BUYER_AUDIT_MISSING_PREVIEW_LIMIT]
+            )
+            if len(missing_users) > BUYER_AUDIT_MISSING_PREVIEW_LIMIT:
+                summary += f" (+{len(missing_users) - BUYER_AUDIT_MISSING_PREVIEW_LIMIT} more)"
+
+        is_clean = not missing_users and invalid_records == 0
+        await inter.edit_original_response(embed=status_card(is_clean, summary))
 
     @devtool_buyer.sub_command(name="bulkcreate")
     async def devtool_buyer_bulkcreate(self, inter: disnake.AppCmdInter[Spooky]) -> None:
