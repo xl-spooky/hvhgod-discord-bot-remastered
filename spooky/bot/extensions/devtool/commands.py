@@ -232,12 +232,37 @@ class DevtoolCommands(commands.Cog):
             ),
         )
         contact_thread = self._extract_created_thread(contact_result)
+        boosting_result = await forum.create_thread(
+            name="BOOSTING SERVICES",
+            content=(
+                "# BOOSTING SERVICES\n\n"
+                "We offer fast and reliable boosting services with safe procedures.\n\n"
+                "## PRICING\n"
+                "- Standard Boost Game: 1€\n"
+                "- Yellow Trust Boost (Perma Yellow): 1.5€ / game\n"
+                "- Red Trust Boost: 2€ / game\n\n"
+                "## HOW IT WORKS\n"
+                "We do NOT require your account credentials.\n\n"
+                "Login is done securely via Steam QR Code only.\n\n"
+                "## NOTES\n"
+                "- Prices are per game\n"
+                "- Make sure to specify your current trust factor before starting\n"
+                "- Fast handling & consistent service\n\n"
+                "Open a ticket to get started."
+            ),
+        )
+        boosting_thread = self._extract_created_thread(boosting_result)
         config_thread_result = await forum.create_thread(
             name="CONFIG CODES",
             content="Config codes for this buyer will be posted in this thread.",
         )
         config_thread = self._extract_created_thread(config_thread_result)
-        if intro_thread is None or contact_thread is None or config_thread is None:
+        if (
+            intro_thread is None
+            or contact_thread is None
+            or boosting_thread is None
+            or config_thread is None
+        ):
             await inter.followup.send(
                 embed=status_card(
                     False,
@@ -255,6 +280,7 @@ class DevtoolCommands(commands.Cog):
                         "forum": int(forum.id),
                         "introduction_thread": int(intro_thread.id),
                         "contact_thread": int(contact_thread.id),
+                        "boosting_services_thread": int(boosting_thread.id),
                         "config_codes_thread": int(config_thread.id),
                     },
                 )
