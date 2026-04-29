@@ -11,7 +11,7 @@ from ..base_models.base import Base
 
 
 class JoinPingConfig(Base):
-    """Persist channels where newcomer ping messages should be emitted."""
+    """Persist channels/threads where newcomer ping messages should be emitted."""
 
     __tablename__ = "join_ping_configs"
     __table_args__ = (UniqueConstraint("guild_id", "channel_id"),)

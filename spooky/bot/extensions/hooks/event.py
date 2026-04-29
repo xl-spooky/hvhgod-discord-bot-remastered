@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Iterable
+from contextlib import suppress
 from typing import cast
 
 import disnake
@@ -167,7 +168,7 @@ class LifecycleEvents(commands.Cog):
 
     @commands.Cog.listener()
     async def on_member_join(self, member: disnake.Member) -> None:
-        """Ping newly joined members in configured channels, then delete message."""
+        """Ping newly joined members in configured channels/threads, then delete."""
         if not checks.db_enabled():
             return
 
@@ -186,7 +187,10 @@ class LifecycleEvents(commands.Cog):
 
         for channel_id in channel_ids:
             channel = member.guild.get_channel(int(channel_id))
-            if not isinstance(channel, disnake.TextChannel):
+            if channel is None:
+                with suppress(Exception):
+                    channel = await self.bot.fetch_channel(int(channel_id))
+            if not isinstance(channel, disnake.abc.Messageable):
                 continue
             try:
                 ping_message = await channel.send(member.mention)

@@ -364,9 +364,9 @@ class DevtoolCommands(commands.Cog):
     async def devtool_createping(
         self,
         inter: disnake.AppCmdInter[Spooky],
-        channel: disnake.TextChannel,
+        channel: disnake.abc.GuildChannel | disnake.Thread,
     ) -> None:
-        """Register a channel for temporary member join pings."""
+        """Register a channel/thread for temporary member join pings."""
         if inter.author.id != OWNER_ID:
             await inter.response.send_message(
                 embed=status_card(False, "Only the configured owner can use /devtool."),
@@ -412,9 +412,9 @@ class DevtoolCommands(commands.Cog):
     async def devtool_deleteping(
         self,
         inter: disnake.AppCmdInter[Spooky],
-        channel: disnake.TextChannel,
+        channel: disnake.abc.GuildChannel | disnake.Thread,
     ) -> None:
-        """Remove a channel from temporary member join pings."""
+        """Remove a channel/thread from temporary member join pings."""
         if inter.author.id != OWNER_ID:
             await inter.response.send_message(
                 embed=status_card(False, "Only the configured owner can use /devtool."),
