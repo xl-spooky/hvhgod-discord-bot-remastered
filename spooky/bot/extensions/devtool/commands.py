@@ -14,6 +14,7 @@ from spooky.db import get_session
 from spooky.ext.components.v2.card import status_card
 from spooky.ext.constants import (
     DEFAULT_BUYER_CATEGORY_ID,
+    FATALITY_ROLE_ID,
     OWNER_ID,
     REQUIRED_BUYER_ROLE_ID,
     SEMI_LEGIT_MAIN_ROLE_ID,
@@ -22,7 +23,7 @@ from spooky.ext.constants import (
     SEMI_RAGE_VISUAL_ROLE_ID,
     VAC_TIPS_CHANNEL_ID,
 )
-from spooky.ext.message import render_buyer_welcome
+from spooky.ext.message import render_boosting_services_message, render_buyer_welcome
 from spooky.models.entities.buyers import BuyerChannel, BuyerCode
 from spooky.models.entities.join_pings import JoinPingConfig
 from spooky.models.entities.permissions import AppPermission, UserPermissionOverride
@@ -234,22 +235,7 @@ class DevtoolCommands(commands.Cog):
         contact_thread = self._extract_created_thread(contact_result)
         boosting_result = await forum.create_thread(
             name="BOOSTING SERVICES",
-            content=(
-                "# BOOSTING SERVICES\n\n"
-                "We offer fast and reliable boosting services with safe procedures.\n\n"
-                "## PRICING\n"
-                "- Standard Boost Game: 1€\n"
-                "- Yellow Trust Boost (Perma Yellow): 1.5€ / game\n"
-                "- Red Trust Boost: 2€ / game\n\n"
-                "## HOW IT WORKS\n"
-                "We do NOT require your account credentials.\n\n"
-                "Login is done securely via Steam QR Code only.\n\n"
-                "## NOTES\n"
-                "- Prices are per game\n"
-                "- Make sure to specify your current trust factor before starting\n"
-                "- Fast handling & consistent service\n\n"
-                "Open a ticket to get started."
-            ),
+            content=render_boosting_services_message(),
         )
         boosting_thread = self._extract_created_thread(boosting_result)
         config_thread_result = await forum.create_thread(
@@ -888,6 +874,30 @@ class DevtoolCommands(commands.Cog):
                 lines.append(f"- {color_prefix}Version `{row.version}`\n  Code: {code_value}")
             return "\n".join(lines)
 
+        def _fatality_section() -> str:
+            if FATALITY_ROLE_ID not in member_role_ids:
+                return "Open ticket to purchase the config."
+            fatality_rows_by_role = codes_by_product_role.get("fatality", {})
+            all_rows = [row for rows in fatality_rows_by_role.values() for row in rows]
+            if not all_rows:
+                return "⚠️ Not configured yet."
+            ordered = sorted(
+                all_rows,
+                key=lambda item: (
+                    item.bundle.lower(),
+                    item.branch.lower(),
+                    (item.color or "").lower(),
+                ),
+            )
+            lines: list[str] = []
+            for row in ordered:
+                title = f"**{row.bundle} • {row.branch}**"
+                color_suffix = f" • {row.color}" if row.color else ""
+                lines.append(
+                    f"- {title}{color_suffix}\n  Version `{row.version}`\n  Code: {row.code}"
+                )
+            return "\n".join(lines)
+
         note_prefix = f"## NOTE\n{note.strip()}\n\n" if note is not None and note.strip() else ""
         return (
             f"{note_prefix}"
@@ -905,14 +915,7 @@ class DevtoolCommands(commands.Cog):
             "### Semi-Rage • Visuals Add-On\n"
             f"{_slot('memesense', SEMI_RAGE_VISUAL_ROLE_ID)}\n\n"
             "# Fatality\n"
-            "### Semi-Legit • Main Branch\n"
-            f"{_slot('fatality', SEMI_LEGIT_MAIN_ROLE_ID)}\n\n"
-            "### Semi-Legit • Visuals Add-On\n"
-            f"{_slot('fatality', SEMI_LEGIT_VISUAL_ROLE_ID)}\n\n"
-            "### Semi-Rage • Main Branch\n"
-            f"{_slot('fatality', SEMI_RAGE_MAIN_ROLE_ID)}\n\n"
-            "### Semi-Rage • Visuals Add-On\n"
-            f"{_slot('fatality', SEMI_RAGE_VISUAL_ROLE_ID)}"
+            f"{_fatality_section()}"
         )
 
     @staticmethod
