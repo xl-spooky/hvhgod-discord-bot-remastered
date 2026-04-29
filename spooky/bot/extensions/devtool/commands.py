@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import suppress
 from typing import Literal
 
@@ -358,6 +359,143 @@ class DevtoolCommands(commands.Cog):
                 ),
             ),
             ephemeral=True,
+        )
+
+    @devtool_buyer.sub_command(name="bulkcreate")
+    async def devtool_buyer_bulkcreate(self, inter: disnake.AppCmdInter[Spooky]) -> None:
+        """Temporarily create buyer forums/threads for buyer-role members missing records."""
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        guild = inter.guild
+        if guild is None:
+            await inter.response.send_message(
+                embed=status_card(False, "This command can only be used in a guild."),
+                ephemeral=True,
+            )
+            return
+
+        await inter.response.defer(ephemeral=True)
+
+        buyers = [
+            member
+            for member in guild.members
+            if any(role.id == REQUIRED_BUYER_ROLE_ID for role in member.roles)
+        ]
+        if not buyers:
+            await inter.edit_original_response(
+                embed=status_card(False, "No members with the required buyer role were found."),
+            )
+            return
+
+        target_category = guild.get_channel(DEFAULT_BUYER_CATEGORY_ID)
+        if not isinstance(target_category, disnake.CategoryChannel):
+            target_category = None
+
+        created = 0
+        skipped = 0
+        failed = 0
+        for member in buyers:
+            async with get_session() as session:
+                existing = (
+                    await session.execute(
+                        select(BuyerChannel.id)
+                        .where(BuyerChannel.user_id == int(member.id))
+                        .limit(1)
+                    )
+                ).scalar_one_or_none()
+                if existing is not None:
+                    skipped += 1
+                    continue
+
+            try:
+                everyone_overwrite = disnake.PermissionOverwrite(view_channel=False)
+                member_overwrite = self._buyer_member_overwrite()
+                forum_name = f"buyer-{member.display_name}".lower().replace(" ", "-")
+                forum = await guild.create_forum_channel(
+                    name=forum_name[:100],
+                    category=target_category,
+                    overwrites={
+                        guild.default_role: everyone_overwrite,
+                        member: member_overwrite,
+                    },
+                    reason=f"Temporary bulk buyer forum creation by {inter.author}",
+                )
+                await asyncio.sleep(3)
+
+                vac_tips_channel = f"<#{VAC_TIPS_CHANNEL_ID}>"
+                welcome_message = render_buyer_welcome(
+                    user_mention=member.mention,
+                    vac_tips_channel_mention=vac_tips_channel,
+                )
+
+                intro_result = await forum.create_thread(
+                    name="INTRODUCTION", content=welcome_message
+                )
+                await asyncio.sleep(3)
+                contact_result = await forum.create_thread(
+                    name="CONTACT US",
+                    content=(
+                        f"{member.mention}\n"
+                        "Use this thread anytime if you need direct help, "
+                        "have account questions, or need support."
+                    ),
+                )
+                await asyncio.sleep(3)
+                boosting_result = await forum.create_thread(
+                    name="BOOSTING SERVICES",
+                    content=render_boosting_services_message(),
+                )
+                await asyncio.sleep(3)
+                config_thread_result = await forum.create_thread(
+                    name="CONFIG CODES",
+                    content="Config codes for this buyer will be posted in this thread.",
+                )
+
+                intro_thread = self._extract_created_thread(intro_result)
+                contact_thread = self._extract_created_thread(contact_result)
+                boosting_thread = self._extract_created_thread(boosting_result)
+                config_thread = self._extract_created_thread(config_thread_result)
+                if (
+                    intro_thread is None
+                    or contact_thread is None
+                    or boosting_thread is None
+                    or config_thread is None
+                ):
+                    failed += 1
+                    continue
+
+                async with get_session() as session:
+                    session.add(
+                        BuyerChannel(
+                            user_id=int(member.id),
+                            channels={
+                                "forum": int(forum.id),
+                                "introduction_thread": int(intro_thread.id),
+                                "contact_thread": int(contact_thread.id),
+                                "boosting_services_thread": int(boosting_thread.id),
+                                "config_codes_thread": int(config_thread.id),
+                            },
+                        )
+                    )
+                    await session.flush()
+                created += 1
+                await asyncio.sleep(3)
+            except Exception:
+                failed += 1
+
+        await inter.edit_original_response(
+            embed=status_card(
+                True,
+                (
+                    f"Temporary bulk create complete. Created: {created}. "
+                    f"Skipped existing: {skipped}. Failed: {failed}."
+                ),
+            ),
         )
 
     @devtool.sub_command_group(name="ping")
