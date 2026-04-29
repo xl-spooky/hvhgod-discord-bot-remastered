@@ -360,7 +360,12 @@ class DevtoolCommands(commands.Cog):
             ephemeral=True,
         )
 
-    @devtool.sub_command(name="createping")
+    @devtool.sub_command_group(name="ping")
+    async def devtool_ping(self, inter: disnake.AppCmdInter[Spooky]) -> None:
+        """Subcommands for temporary member join ping configuration."""
+        del inter
+
+    @devtool_ping.sub_command(name="create")
     async def devtool_createping(
         self,
         inter: disnake.AppCmdInter[Spooky],
@@ -408,7 +413,7 @@ class DevtoolCommands(commands.Cog):
             ephemeral=True,
         )
 
-    @devtool.sub_command(name="deleteping")
+    @devtool_ping.sub_command(name="delete")
     async def devtool_deleteping(
         self,
         inter: disnake.AppCmdInter[Spooky],
@@ -461,7 +466,7 @@ class DevtoolCommands(commands.Cog):
             ephemeral=True,
         )
 
-    @devtool.sub_command(name="pingstatus")
+    @devtool_ping.sub_command(name="status")
     async def devtool_pingstatus(self, inter: disnake.AppCmdInter[Spooky]) -> None:
         """Show configured channels that receive temporary join pings."""
         if inter.author.id != OWNER_ID:
