@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from contextlib import suppress
 from typing import Literal
 
@@ -14,7 +13,6 @@ from spooky.db import get_session
 from spooky.ext.components.v2.card import status_card
 from spooky.ext.constants import (
     DEFAULT_BUYER_CATEGORY_ID,
-    FATALITY_ROLE_ID,
     OWNER_ID,
     REQUIRED_BUYER_ROLE_ID,
     SEMI_LEGIT_MAIN_ROLE_ID,
@@ -29,6 +27,8 @@ from spooky.models.entities.join_pings import JoinPingConfig
 from spooky.models.entities.permissions import AppPermission, UserPermissionOverride
 from sqlalchemy import delete, select
 from thefuzz import process
+
+from .helpers import build_member_code_summary, group_codes_by_product_and_role
 
 PermissionAction = Literal["Add", "Remove"]
 CodeBundleOption = Literal["Semi-Legit", "Semi-Rage"]
@@ -360,64 +360,6 @@ class DevtoolCommands(commands.Cog):
             ephemeral=True,
         )
 
-    @devtool.sub_command(name="wipebuyerdata")
-    async def devtool_wipebuyerdata(
-        self,
-        inter: disnake.AppCmdInter[Spooky],
-    ) -> None:
-        """Delete all buyer channels and clear all buyer model data."""
-        if inter.author.id != OWNER_ID:
-            await inter.response.send_message(
-                embed=status_card(False, "Only the configured owner can use /devtool."),
-                ephemeral=True,
-            )
-            return
-
-        await inter.response.defer(ephemeral=True)
-
-        async with get_session() as session:
-            buyer_rows = (await session.execute(select(BuyerChannel))).scalars().all()
-
-            deleted_channels = 0
-            missing_or_failed = 0
-            for row in buyer_rows:
-                for saved_channel_id in {int(value) for value in row.channels.values()}:
-                    channel = self.bot.get_channel(saved_channel_id)
-                    if channel is None:
-                        with suppress(Exception):
-                            channel = await self.bot.fetch_channel(saved_channel_id)
-                    if isinstance(channel, disnake.abc.GuildChannel | disnake.Thread):
-                        with suppress(Exception):
-                            await channel.delete(
-                                reason=(
-                                    f"wipebuyerdata requested by {inter.author} ({inter.author.id})"
-                                )
-                            )
-                            deleted_channels += 1
-                            continue
-                    missing_or_failed += 1
-
-            buyer_row_count = len(buyer_rows)
-            buyer_code_count = len((await session.execute(select(BuyerCode.id))).scalars().all())
-
-            await session.execute(delete(BuyerChannel))
-            await session.execute(delete(BuyerCode))
-            await session.flush()
-
-        await inter.followup.send(
-            embed=status_card(
-                True,
-                (
-                    "Buyer wipe complete. "
-                    f"Deleted channels: {deleted_channels}/{buyer_row_count}. "
-                    f"Buyer rows cleared: {buyer_row_count}. "
-                    f"Code rows cleared: {buyer_code_count}. "
-                    f"Missing/failed channel deletions: {missing_or_failed}."
-                ),
-            ),
-            ephemeral=True,
-        )
-
     @devtool.sub_command(name="createping")
     async def devtool_createping(
         self,
@@ -683,7 +625,12 @@ class DevtoolCommands(commands.Cog):
             version=version,
         )
 
-    @devtool.sub_command(name="sendmembercode")
+    @devtool.sub_command_group(name="send")
+    async def devtool_send(self, inter: disnake.AppCmdInter[Spooky]) -> None:
+        """Subcommands for publishing config summaries."""
+        del inter
+
+    @devtool_send.sub_command(name="member")
     async def devtool_sendmembercode(
         self,
         inter: disnake.AppCmdInter[Spooky],
@@ -724,8 +671,8 @@ class DevtoolCommands(commands.Cog):
                 )
             ).scalar_one_or_none()
 
-        codes_by_product_role = self._group_codes_by_product_and_role(code_rows)
-        summary = self._build_member_code_summary(
+        codes_by_product_role = group_codes_by_product_and_role(code_rows)
+        summary = build_member_code_summary(
             member=member,
             codes_by_product_role=codes_by_product_role,
         )
@@ -750,7 +697,7 @@ class DevtoolCommands(commands.Cog):
             ),
         )
 
-    @devtool.sub_command(name="sendallmembercode")
+    @devtool_send.sub_command(name="all")
     async def devtool_sendallmembercode(
         self,
         inter: disnake.AppCmdInter[Spooky],
@@ -803,7 +750,7 @@ class DevtoolCommands(commands.Cog):
             )
             return
 
-        codes_by_product_role = self._group_codes_by_product_and_role(code_rows)
+        codes_by_product_role = group_codes_by_product_and_role(code_rows)
         sent = 0
         missing_threads = 0
         missing_members = 0
@@ -819,7 +766,7 @@ class DevtoolCommands(commands.Cog):
                 missing_threads += 1
                 continue
 
-            summary = self._build_member_code_summary(
+            summary = build_member_code_summary(
                 member=member,
                 codes_by_product_role=codes_by_product_role,
                 note=note,
@@ -837,85 +784,6 @@ class DevtoolCommands(commands.Cog):
                     f"Missing/inaccessible threads: {missing_threads}."
                 ),
             ),
-        )
-
-    @staticmethod
-    def _group_codes_by_product_and_role(
-        rows: Sequence[BuyerCode],
-    ) -> dict[str, dict[int, list[BuyerCode]]]:
-        """Group code rows by product then role id for summary rendering."""
-        grouped: dict[str, dict[int, list[BuyerCode]]] = {}
-        for row in rows:
-            product_bucket = grouped.setdefault(row.product.lower(), {})
-            product_bucket.setdefault(int(row.role_id), []).append(row)
-        return grouped
-
-    @staticmethod
-    def _build_member_code_summary(
-        *,
-        member: disnake.Member,
-        codes_by_product_role: dict[str, dict[int, list[BuyerCode]]],
-        note: str | None = None,
-    ) -> str:
-        """Render the standard role-based config summary for a member."""
-        member_role_ids = {int(role.id) for role in member.roles}
-
-        def _slot(product: str, role_id: int) -> str:
-            if role_id not in member_role_ids:
-                return "Open ticket to purchase the config."
-            rows = codes_by_product_role.get(product, {}).get(role_id, [])
-            if not rows:
-                return "⚠️ Not configured yet."
-            ordered = sorted(rows, key=lambda item: (item.color or "").lower())
-            lines: list[str] = []
-            for row in ordered:
-                color_prefix = f"**{row.color}** • " if row.color else ""
-                code_value = f"||{row.code}||" if product == "memesense" else row.code
-                lines.append(f"- {color_prefix}Version `{row.version}`\n  Code: {code_value}")
-            return "\n".join(lines)
-
-        def _fatality_section() -> str:
-            if FATALITY_ROLE_ID not in member_role_ids:
-                return "Open ticket to purchase the config."
-            fatality_rows_by_role = codes_by_product_role.get("fatality", {})
-            all_rows = [row for rows in fatality_rows_by_role.values() for row in rows]
-            if not all_rows:
-                return "⚠️ Not configured yet."
-            ordered = sorted(
-                all_rows,
-                key=lambda item: (
-                    item.bundle.lower(),
-                    item.branch.lower(),
-                    (item.color or "").lower(),
-                ),
-            )
-            lines: list[str] = []
-            for row in ordered:
-                title = f"**{row.bundle} • {row.branch}**"
-                color_suffix = f" • {row.color}" if row.color else ""
-                lines.append(
-                    f"- {title}{color_suffix}\n  Version `{row.version}`\n  Code: {row.code}"
-                )
-            return "\n".join(lines)
-
-        note_prefix = f"## NOTE\n{note.strip()}\n\n" if note is not None and note.strip() else ""
-        return (
-            f"{note_prefix}"
-            "## CONFIG ACCESS SUMMARY\n"
-            f"{member.mention}\n\n"
-            "Your currently available config codes are listed below "
-            "based on your assigned roles.\n\n"
-            "# Memesense\n"
-            "### Semi-Legit • Main Branch\n"
-            f"{_slot('memesense', SEMI_LEGIT_MAIN_ROLE_ID)}\n\n"
-            "### Semi-Legit • Visuals Add-On\n"
-            f"{_slot('memesense', SEMI_LEGIT_VISUAL_ROLE_ID)}\n\n"
-            "### Semi-Rage • Main Branch\n"
-            f"{_slot('memesense', SEMI_RAGE_MAIN_ROLE_ID)}\n\n"
-            "### Semi-Rage • Visuals Add-On\n"
-            f"{_slot('memesense', SEMI_RAGE_VISUAL_ROLE_ID)}\n\n"
-            "# Fatality\n"
-            f"{_fatality_section()}"
         )
 
     @staticmethod
