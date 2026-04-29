@@ -344,46 +344,6 @@ class DevtoolCommands(commands.Cog):
             )
         )
 
-    @devtool.sub_command(name="removebuyerroles")
-    async def devtool_removebuyerroles(
-        self,
-        inter: disnake.AppCmdInter[Spooky],
-        member: disnake.Member,
-    ) -> None:
-        """Remove buyer access roles from a member in one action."""
-        if inter.author.id != OWNER_ID:
-            await inter.response.send_message(
-                embed=status_card(False, "Only the configured owner can use /devtool."),
-                ephemeral=True,
-            )
-            return
-
-        roles_to_remove = {
-            REQUIRED_BUYER_ROLE_ID,
-            SEMI_LEGIT_MAIN_ROLE_ID,
-            SEMI_LEGIT_VISUAL_ROLE_ID,
-            SEMI_RAGE_MAIN_ROLE_ID,
-            SEMI_RAGE_VISUAL_ROLE_ID,
-        }
-        assigned_roles = [role for role in member.roles if role.id in roles_to_remove]
-
-        if not assigned_roles:
-            await inter.response.send_message(
-                embed=status_card(False, f"{member.mention} has none of the buyer access roles."),
-                ephemeral=True,
-            )
-            return
-
-        await member.remove_roles(
-            *assigned_roles,
-            reason=f"removebuyerroles requested by {inter.author} ({inter.author.id})",
-        )
-        removed_names = ", ".join(f"`{role.name}`" for role in assigned_roles)
-        await inter.response.send_message(
-            embed=status_card(True, f"Removed roles from {member.mention}: {removed_names}"),
-            ephemeral=True,
-        )
-
     @devtool.sub_command(name="removebuyer")
     async def devtool_removebuyer(
         self,
