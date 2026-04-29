@@ -13,7 +13,6 @@ from spooky.core.checks import fakeperms_or_discordperm
 from spooky.db import get_session
 from spooky.ext.components.v2.card import status_card
 from spooky.ext.constants import (
-    BUYER_ALERT_CHANNEL_ID,
     DEFAULT_BUYER_CATEGORY_ID,
     OWNER_ID,
     REQUIRED_BUYER_ROLE_ID,
@@ -255,95 +254,6 @@ class DevtoolCommands(commands.Cog):
             ephemeral=True,
         )
 
-    @devtool.sub_command(name="auditbuyerchannels")
-    async def devtool_auditbuyerchannels(
-        self,
-        inter: disnake.AppCmdInter[Spooky],
-    ) -> None:
-        """Report buyer-role members whose buyer forum is missing or in the wrong category."""
-        if inter.author.id != OWNER_ID:
-            await inter.response.send_message(
-                embed=status_card(False, "Only the configured owner can use /devtool."),
-                ephemeral=True,
-            )
-            return
-
-        guild = inter.guild
-        if guild is None:
-            await inter.response.send_message(
-                embed=status_card(False, "This command can only be used in a guild."),
-                ephemeral=True,
-            )
-            return
-
-        await inter.response.defer(ephemeral=True)
-
-        buyer_members = [
-            member
-            for member in guild.members
-            if any(role.id == REQUIRED_BUYER_ROLE_ID for role in member.roles)
-        ]
-        buyer_user_ids = {int(member.id) for member in buyer_members}
-
-        async with get_session() as session:
-            rows = (
-                (
-                    await session.execute(
-                        select(BuyerChannel.user_id, BuyerChannel.channel_id).where(
-                            BuyerChannel.user_id.in_(buyer_user_ids)
-                        )
-                    )
-                )
-                .tuples()
-                .all()
-            )
-
-        channel_by_user_id = {int(user_id): int(channel_id) for user_id, channel_id in rows}
-        flagged_mentions: list[str] = []
-
-        for member in buyer_members:
-            channel_id = channel_by_user_id.get(int(member.id))
-            if channel_id is None:
-                flagged_mentions.append(member.mention)
-                continue
-
-            channel = guild.get_channel(channel_id)
-            if not isinstance(channel, disnake.ForumChannel):
-                flagged_mentions.append(member.mention)
-                continue
-
-            if channel.category_id != DEFAULT_BUYER_CATEGORY_ID:
-                flagged_mentions.append(member.mention)
-
-        alert_channel = guild.get_channel(BUYER_ALERT_CHANNEL_ID)
-        if not isinstance(alert_channel, disnake.TextChannel):
-            await inter.edit_original_response(
-                embed=status_card(False, "Buyer alert channel is missing or not a text channel."),
-            )
-            return
-
-        if not flagged_mentions:
-            await alert_channel.send(
-                "✅ Buyer audit complete: every buyer with the buyer role has "
-                "a forum under the buyer category."
-            )
-            await inter.edit_original_response(
-                embed=status_card(True, "Audit complete. No issues found."),
-            )
-            return
-
-        await alert_channel.send(
-            "⚠️ Buyer audit found members missing buyer channels under the buyer category:\n"
-            + "\n".join(f"- {mention}" for mention in flagged_mentions)
-        )
-        await inter.edit_original_response(
-            embed=status_card(
-                True,
-                "Audit complete. Sent "
-                f"{len(flagged_mentions)} flagged member(s) to {alert_channel.mention}.",
-            )
-        )
-
     @devtool.sub_command(name="removebuyer")
     async def devtool_removebuyer(
         self,
@@ -405,12 +315,12 @@ class DevtoolCommands(commands.Cog):
             ephemeral=True,
         )
 
-    @devtool.sub_command(name="removebuyerroles")
-    async def devtool_removebuyerroles(
+    @devtool.sub_command(name="wipebuyerdata")
+    async def devtool_wipebuyerdata(
         self,
         inter: disnake.AppCmdInter[Spooky],
     ) -> None:
-        """Remove buyer-related product roles from buyers without a valid buyer forum."""
+        """Delete all buyer forum channels and clear all buyer model data."""
         if inter.author.id != OWNER_ID:
             await inter.response.send_message(
                 embed=status_card(False, "Only the configured owner can use /devtool."),
@@ -418,92 +328,46 @@ class DevtoolCommands(commands.Cog):
             )
             return
 
-        guild = inter.guild
-        if guild is None:
-            await inter.response.send_message(
-                embed=status_card(False, "This command can only be used in a guild."),
-                ephemeral=True,
-            )
-            return
-
         await inter.response.defer(ephemeral=True)
 
-        buyer_members = [
-            member
-            for member in guild.members
-            if any(role.id == REQUIRED_BUYER_ROLE_ID for role in member.roles)
-        ]
-        buyer_user_ids = {int(member.id) for member in buyer_members}
-
         async with get_session() as session:
-            rows = (
-                (
-                    await session.execute(
-                        select(BuyerChannel.user_id, BuyerChannel.channel_id).where(
-                            BuyerChannel.user_id.in_(buyer_user_ids)
+            buyer_rows = (await session.execute(select(BuyerChannel))).scalars().all()
+
+            deleted_forums = 0
+            missing_or_failed = 0
+            for row in buyer_rows:
+                channel = self.bot.get_channel(int(row.channel_id))
+                if channel is None:
+                    with suppress(Exception):
+                        channel = await self.bot.fetch_channel(int(row.channel_id))
+                if isinstance(channel, disnake.ForumChannel):
+                    with suppress(Exception):
+                        await channel.delete(
+                            reason=f"wipebuyerdata requested by {inter.author} ({inter.author.id})"
                         )
-                    )
-                )
-                .tuples()
-                .all()
-            )
+                        deleted_forums += 1
+                        continue
+                missing_or_failed += 1
 
-        channel_by_user_id = {int(user_id): int(channel_id) for user_id, channel_id in rows}
-        flagged_members: list[disnake.Member] = []
+            buyer_row_count = len(buyer_rows)
+            buyer_code_count = len((await session.execute(select(BuyerCode.id))).scalars().all())
 
-        for member in buyer_members:
-            channel_id = channel_by_user_id.get(int(member.id))
-            if channel_id is None:
-                flagged_members.append(member)
-                continue
+            await session.execute(delete(BuyerChannel))
+            await session.execute(delete(BuyerCode))
+            await session.flush()
 
-            channel = guild.get_channel(channel_id)
-            if not isinstance(channel, disnake.ForumChannel):
-                flagged_members.append(member)
-                continue
-
-            if channel.category_id != DEFAULT_BUYER_CATEGORY_ID:
-                flagged_members.append(member)
-
-        if not flagged_members:
-            await inter.edit_original_response(
-                embed=status_card(True, "No buyer-role members are missing valid buyer channels."),
-            )
-            return
-
-        role_ids_to_remove = {
-            REQUIRED_BUYER_ROLE_ID,
-            SEMI_LEGIT_MAIN_ROLE_ID,
-            SEMI_LEGIT_VISUAL_ROLE_ID,
-            SEMI_RAGE_MAIN_ROLE_ID,
-            SEMI_RAGE_VISUAL_ROLE_ID,
-        }
-
-        removed_count = 0
-        skipped_count = 0
-        for member in flagged_members:
-            roles_to_remove = [role for role in member.roles if role.id in role_ids_to_remove]
-            if not roles_to_remove:
-                skipped_count += 1
-                continue
-
-            await member.remove_roles(
-                *roles_to_remove,
-                reason=(
-                    f"removebuyerroles auto-cleanup requested by {inter.author} ({inter.author.id})"
-                ),
-            )
-            removed_count += 1
-
-        await inter.edit_original_response(
+        await inter.followup.send(
             embed=status_card(
                 True,
                 (
-                    "Processed buyer-role cleanup for members missing valid buyer channels. "
-                    f"Removed roles from {removed_count} member(s); "
-                    f"skipped {skipped_count} member(s) with no tracked roles."
+                    "Buyer wipe complete. "
+                    f"Deleted forums: {deleted_forums}/{buyer_row_count}. "
+                    f"Forum rows cleared: {buyer_row_count}. "
+                    f"Code rows cleared: {buyer_code_count}. "
+                    f"Missing/failed forum deletions: {missing_or_failed}."
                 ),
             ),
+            ephemeral=True,
         )
 
     @devtool.sub_command(name="removebuyerchannel")
