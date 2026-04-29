@@ -409,13 +409,65 @@ class DevtoolCommands(commands.Cog):
     async def devtool_removebuyerroles(
         self,
         inter: disnake.AppCmdInter[Spooky],
-        member: disnake.Member,
     ) -> None:
-        """Remove buyer-related product roles from a member."""
+        """Remove buyer-related product roles from buyers without a valid buyer forum."""
         if inter.author.id != OWNER_ID:
             await inter.response.send_message(
                 embed=status_card(False, "Only the configured owner can use /devtool."),
                 ephemeral=True,
+            )
+            return
+
+        guild = inter.guild
+        if guild is None:
+            await inter.response.send_message(
+                embed=status_card(False, "This command can only be used in a guild."),
+                ephemeral=True,
+            )
+            return
+
+        await inter.response.defer(ephemeral=True)
+
+        buyer_members = [
+            member
+            for member in guild.members
+            if any(role.id == REQUIRED_BUYER_ROLE_ID for role in member.roles)
+        ]
+        buyer_user_ids = {int(member.id) for member in buyer_members}
+
+        async with get_session() as session:
+            rows = (
+                (
+                    await session.execute(
+                        select(BuyerChannel.user_id, BuyerChannel.channel_id).where(
+                            BuyerChannel.user_id.in_(buyer_user_ids)
+                        )
+                    )
+                )
+                .tuples()
+                .all()
+            )
+
+        channel_by_user_id = {int(user_id): int(channel_id) for user_id, channel_id in rows}
+        flagged_members: list[disnake.Member] = []
+
+        for member in buyer_members:
+            channel_id = channel_by_user_id.get(int(member.id))
+            if channel_id is None:
+                flagged_members.append(member)
+                continue
+
+            channel = guild.get_channel(channel_id)
+            if not isinstance(channel, disnake.ForumChannel):
+                flagged_members.append(member)
+                continue
+
+            if channel.category_id != DEFAULT_BUYER_CATEGORY_ID:
+                flagged_members.append(member)
+
+        if not flagged_members:
+            await inter.edit_original_response(
+                embed=status_card(True, "No buyer-role members are missing valid buyer channels."),
             )
             return
 
@@ -426,27 +478,33 @@ class DevtoolCommands(commands.Cog):
             SEMI_RAGE_MAIN_ROLE_ID,
             SEMI_RAGE_VISUAL_ROLE_ID,
         }
-        roles_to_remove = [role for role in member.roles if role.id in role_ids_to_remove]
 
-        if not roles_to_remove:
-            await inter.response.send_message(
-                embed=status_card(False, f"{member.mention} has none of the tracked buyer roles."),
-                ephemeral=True,
+        removed_count = 0
+        skipped_count = 0
+        for member in flagged_members:
+            roles_to_remove = [role for role in member.roles if role.id in role_ids_to_remove]
+            if not roles_to_remove:
+                skipped_count += 1
+                continue
+
+            await member.remove_roles(
+                *roles_to_remove,
+                reason=(
+                    "removebuyerroles auto-cleanup requested by "
+                    f"{inter.author} ({inter.author.id})"
+                ),
             )
-            return
+            removed_count += 1
 
-        await member.remove_roles(
-            *roles_to_remove,
-            reason=(f"removebuyerroles requested by {inter.author} ({inter.author.id})"),
-        )
-
-        removed_roles_text = ", ".join(role.mention for role in roles_to_remove)
-        await inter.response.send_message(
+        await inter.edit_original_response(
             embed=status_card(
                 True,
-                f"Removed roles from {member.mention}: {removed_roles_text}",
+                (
+                    "Processed buyer-role cleanup for members missing valid buyer channels. "
+                    f"Removed roles from {removed_count} member(s); "
+                    f"skipped {skipped_count} member(s) with no tracked roles."
+                ),
             ),
-            ephemeral=True,
         )
 
     @devtool.sub_command(name="removebuyerchannel")
