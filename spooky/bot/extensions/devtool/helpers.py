@@ -11,6 +11,7 @@ from spooky.ext.constants import (
     SEMI_LEGIT_VISUAL_ROLE_ID,
     SEMI_RAGE_MAIN_ROLE_ID,
     SEMI_RAGE_VISUAL_ROLE_ID,
+    STATS_BOOSTER_ROLE_ID,
 )
 from spooky.models.entities.buyers import BuyerCode
 
@@ -54,10 +55,15 @@ def build_member_code_summary(
             return "Open ticket to purchase the config."
         fatality_rows_by_role = codes_by_product_role.get("fatality", {})
         all_rows = [row for rows in fatality_rows_by_role.values() for row in rows]
-        if not all_rows:
+        visible_rows = [
+            row
+            for row in all_rows
+            if int(row.role_id) != STATS_BOOSTER_ROLE_ID or STATS_BOOSTER_ROLE_ID in member_role_ids
+        ]
+        if not visible_rows:
             return "⚠️ Not configured yet."
         ordered = sorted(
-            all_rows,
+            visible_rows,
             key=lambda item: (
                 item.bundle.lower(),
                 item.branch.lower(),
@@ -87,6 +93,8 @@ def build_member_code_summary(
         f"{_slot('memesense', SEMI_RAGE_MAIN_ROLE_ID)}\n\n"
         "### Semi-Rage • Visuals Add-On\n"
         f"{_slot('memesense', SEMI_RAGE_VISUAL_ROLE_ID)}\n\n"
+        "### Stats-Booster\n"
+        f"{_slot('memesense', STATS_BOOSTER_ROLE_ID)}\n\n"
         "# Fatality\n"
         f"{_fatality_section()}"
     )
