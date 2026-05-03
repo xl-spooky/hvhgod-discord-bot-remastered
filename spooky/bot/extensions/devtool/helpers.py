@@ -51,15 +51,20 @@ def build_member_code_summary(
         return "\n".join(lines)
 
     def _fatality_section() -> str:
-        if FATALITY_ROLE_ID not in member_role_ids:
-            return "Open ticket to purchase the config."
         fatality_rows_by_role = codes_by_product_role.get("fatality", {})
-        all_rows = [row for rows in fatality_rows_by_role.values() for row in rows]
+        can_view_fatality = FATALITY_ROLE_ID in member_role_ids
+        can_view_stats_booster = STATS_BOOSTER_ROLE_ID in member_role_ids
         visible_rows = [
             row
-            for row in all_rows
-            if int(row.role_id) != STATS_BOOSTER_ROLE_ID or STATS_BOOSTER_ROLE_ID in member_role_ids
+            for role_id, rows in fatality_rows_by_role.items()
+            for row in rows
+            if (
+                (int(role_id) == STATS_BOOSTER_ROLE_ID and can_view_stats_booster)
+                or (int(role_id) != STATS_BOOSTER_ROLE_ID and can_view_fatality)
+            )
         ]
+        if not visible_rows and not (can_view_fatality or can_view_stats_booster):
+            return "Open ticket to purchase the config."
         if not visible_rows:
             return "⚠️ Not configured yet."
         ordered = sorted(
@@ -72,7 +77,10 @@ def build_member_code_summary(
         )
         lines: list[str] = []
         for row in ordered:
-            title = f"**{row.bundle} • {row.branch}**"
+            if int(row.role_id) == STATS_BOOSTER_ROLE_ID:
+                title = "**Stats-Booster**"
+            else:
+                title = f"**{row.bundle} • {row.branch}**"
             color_suffix = f" • {row.color}" if row.color else ""
             lines.append(f"- {title}{color_suffix}\n  Version `{row.version}`\n  Code: {row.code}")
         return "\n".join(lines)

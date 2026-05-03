@@ -34,7 +34,7 @@ from .helpers import build_member_code_summary, group_codes_by_product_and_role
 
 PermissionAction = Literal["Add", "Remove"]
 CodeBundleOption = Literal["Semi-Legit", "Semi-Rage", "Stats-Booster"]
-CodeBranchOption = Literal["Main Branch", "Visual"]
+CodeBranchOption = Literal["Main Branch", "Visual", "Stats-Booster"]
 CodeColorOption = Literal["Pink", "Purple", "Yellow", "Blue", "Red", "Green", "Black & White"]
 CodeProductOption = Literal["memesense", "fatality"]
 FUZZY_PERMISSION_SCORE_THRESHOLD = 65
@@ -674,6 +674,7 @@ class DevtoolCommands(commands.Cog):
 
         await inter.response.defer(ephemeral=True)
 
+        bundle, branch = self._normalize_code_slot(bundle=bundle, branch=branch)
         role_id = self._role_for_code_slot(bundle=bundle, branch=branch)
         if role_id is None:
             await inter.followup.send(
@@ -977,10 +978,20 @@ class DevtoolCommands(commands.Cog):
             ("Semi-Legit", "Visual"): SEMI_LEGIT_VISUAL_ROLE_ID,
             ("Semi-Rage", "Main Branch"): SEMI_RAGE_MAIN_ROLE_ID,
             ("Semi-Rage", "Visual"): SEMI_RAGE_VISUAL_ROLE_ID,
-            ("Stats-Booster", "Main Branch"): STATS_BOOSTER_ROLE_ID,
-            ("Stats-Booster", "Visual"): STATS_BOOSTER_ROLE_ID,
+            ("Stats-Booster", "Stats-Booster"): STATS_BOOSTER_ROLE_ID,
         }
         return role_map.get((bundle, branch))
+
+    @staticmethod
+    def _normalize_code_slot(
+        *,
+        bundle: CodeBundleOption,
+        branch: CodeBranchOption,
+    ) -> tuple[CodeBundleOption, CodeBranchOption]:
+        """Canonicalize either Stats-Booster option path to one stored slot."""
+        if bundle == "Stats-Booster" or branch == "Stats-Booster":
+            return "Stats-Booster", "Stats-Booster"
+        return bundle, branch
 
     @devtool_permission.autocomplete("permission")
     async def permission_autocomplete(
