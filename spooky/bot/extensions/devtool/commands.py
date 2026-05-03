@@ -20,6 +20,7 @@ from spooky.ext.constants import (
     SEMI_LEGIT_VISUAL_ROLE_ID,
     SEMI_RAGE_MAIN_ROLE_ID,
     SEMI_RAGE_VISUAL_ROLE_ID,
+    STATS_BOOSTER_ROLE_ID,
     VAC_TIPS_CHANNEL_ID,
 )
 from spooky.ext.message import render_boosting_services_message, render_buyer_welcome
@@ -32,9 +33,9 @@ from thefuzz import process
 from .helpers import build_member_code_summary, group_codes_by_product_and_role
 
 PermissionAction = Literal["Add", "Remove"]
-CodeBundleOption = Literal["Semi-Legit", "Semi-Rage"]
+CodeBundleOption = Literal["Semi-Legit", "Semi-Rage", "Stats-Booster"]
 CodeBranchOption = Literal["Main Branch", "Visual"]
-CodeColorOption = Literal["Pink", "Purple", "Yellow", "Blue", "Red", "Black & White"]
+CodeColorOption = Literal["Pink", "Purple", "Yellow", "Blue", "Red", "Green", "Black & White"]
 CodeProductOption = Literal["memesense", "fatality"]
 FUZZY_PERMISSION_SCORE_THRESHOLD = 65
 MAX_PERMISSION_CHOICES = 25
@@ -855,6 +856,7 @@ class DevtoolCommands(commands.Cog):
             SEMI_LEGIT_VISUAL_ROLE_ID,
             SEMI_RAGE_MAIN_ROLE_ID,
             SEMI_RAGE_VISUAL_ROLE_ID,
+            STATS_BOOSTER_ROLE_ID,
         }
 
         await inter.response.defer(ephemeral=True)
@@ -930,6 +932,7 @@ class DevtoolCommands(commands.Cog):
             SEMI_LEGIT_VISUAL_ROLE_ID,
             SEMI_RAGE_MAIN_ROLE_ID,
             SEMI_RAGE_VISUAL_ROLE_ID,
+            STATS_BOOSTER_ROLE_ID,
         }
 
         await inter.response.defer(ephemeral=True)
@@ -1037,6 +1040,8 @@ class DevtoolCommands(commands.Cog):
             ("Semi-Legit", "Visual"): SEMI_LEGIT_VISUAL_ROLE_ID,
             ("Semi-Rage", "Main Branch"): SEMI_RAGE_MAIN_ROLE_ID,
             ("Semi-Rage", "Visual"): SEMI_RAGE_VISUAL_ROLE_ID,
+            ("Stats-Booster", "Main Branch"): STATS_BOOSTER_ROLE_ID,
+            ("Stats-Booster", "Visual"): STATS_BOOSTER_ROLE_ID,
         }
         return role_map.get((bundle, branch))
 

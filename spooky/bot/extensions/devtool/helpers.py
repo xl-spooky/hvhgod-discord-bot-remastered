@@ -11,6 +11,7 @@ from spooky.ext.constants import (
     SEMI_LEGIT_VISUAL_ROLE_ID,
     SEMI_RAGE_MAIN_ROLE_ID,
     SEMI_RAGE_VISUAL_ROLE_ID,
+    STATS_BOOSTER_ROLE_ID,
 )
 from spooky.models.entities.buyers import BuyerCode
 
@@ -87,6 +88,8 @@ def build_member_code_summary(
         f"{_slot('memesense', SEMI_RAGE_MAIN_ROLE_ID)}\n\n"
         "### Semi-Rage • Visuals Add-On\n"
         f"{_slot('memesense', SEMI_RAGE_VISUAL_ROLE_ID)}\n\n"
+        "### Stats-Booster\n"
+        f"{_slot('memesense', STATS_BOOSTER_ROLE_ID)}\n\n"
         "# Fatality\n"
         f"{_fatality_section()}"
     )
