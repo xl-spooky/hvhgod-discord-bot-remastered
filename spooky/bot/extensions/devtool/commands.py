@@ -14,14 +14,15 @@ from spooky.db import get_session
 from spooky.ext.components.v2.card import status_card
 from spooky.ext.constants import (
     DEFAULT_BUYER_CATEGORY_ID,
-    LEGIT_ROLE_ID,
+    FATALITY_SEMI_LEGIT_ROLE_ID,
+    MEMESENSE_LEGIT_ROLE_ID,
+    MEMESENSE_SEMI_LEGIT_MAIN_ROLE_ID,
+    MEMESENSE_SEMI_LEGIT_VISUAL_ROLE_ID,
+    MEMESENSE_SEMI_RAGE_MAIN_ROLE_ID,
+    MEMESENSE_SEMI_RAGE_VISUAL_ROLE_ID,
+    MEMESENSE_STATS_BOOSTER_ROLE_ID,
     OWNER_ID,
     REQUIRED_BUYER_ROLE_ID,
-    SEMI_LEGIT_MAIN_ROLE_ID,
-    SEMI_LEGIT_VISUAL_ROLE_ID,
-    SEMI_RAGE_MAIN_ROLE_ID,
-    SEMI_RAGE_VISUAL_ROLE_ID,
-    STATS_BOOSTER_ROLE_ID,
     VAC_TIPS_CHANNEL_ID,
 )
 from spooky.ext.message import render_boosting_services_message, render_buyer_welcome
@@ -37,6 +38,7 @@ PermissionAction = Literal["Add", "Remove"]
 CodeBundleOption = Literal["Legit", "Semi-Legit", "Semi-Rage", "Stats-Booster"]
 CodeBranchOption = Literal["Main Branch", "Visual"]
 CodeColorOption = Literal["Pink", "Purple", "Yellow", "Blue", "Red", "Green", "Black & White"]
+FatalityCodeBundleOption = Literal["Semi-Legit"]
 CodeProductOption = Literal["memesense", "fatality"]
 FUZZY_PERMISSION_SCORE_THRESHOLD = 65
 MAX_PERMISSION_CHOICES = 25
@@ -738,7 +740,7 @@ class DevtoolCommands(commands.Cog):
 
         await inter.response.defer(ephemeral=True)
 
-        role_id = self._role_for_code_slot(bundle=bundle, branch=branch)
+        role_id = self._role_for_code_slot(product=product, bundle=bundle, branch=branch)
         if role_id is None:
             await inter.followup.send(
                 embed=status_card(False, "Unable to resolve code slot role."),
@@ -817,7 +819,7 @@ class DevtoolCommands(commands.Cog):
     async def devtool_setcode_fatality(
         self,
         inter: disnake.AppCmdInter[Spooky],
-        bundle: CodeBundleOption,
+        bundle: FatalityCodeBundleOption,
         branch: CodeBranchOption,
         code: str,
         version: str,
@@ -853,12 +855,13 @@ class DevtoolCommands(commands.Cog):
             return
 
         tracked_roles = {
-            LEGIT_ROLE_ID,
-            SEMI_LEGIT_MAIN_ROLE_ID,
-            SEMI_LEGIT_VISUAL_ROLE_ID,
-            SEMI_RAGE_MAIN_ROLE_ID,
-            SEMI_RAGE_VISUAL_ROLE_ID,
-            STATS_BOOSTER_ROLE_ID,
+            FATALITY_SEMI_LEGIT_ROLE_ID,
+            MEMESENSE_LEGIT_ROLE_ID,
+            MEMESENSE_SEMI_LEGIT_MAIN_ROLE_ID,
+            MEMESENSE_SEMI_LEGIT_VISUAL_ROLE_ID,
+            MEMESENSE_SEMI_RAGE_MAIN_ROLE_ID,
+            MEMESENSE_SEMI_RAGE_VISUAL_ROLE_ID,
+            MEMESENSE_STATS_BOOSTER_ROLE_ID,
         }
 
         await inter.response.defer(ephemeral=True)
@@ -930,12 +933,13 @@ class DevtoolCommands(commands.Cog):
             return
 
         tracked_roles = {
-            LEGIT_ROLE_ID,
-            SEMI_LEGIT_MAIN_ROLE_ID,
-            SEMI_LEGIT_VISUAL_ROLE_ID,
-            SEMI_RAGE_MAIN_ROLE_ID,
-            SEMI_RAGE_VISUAL_ROLE_ID,
-            STATS_BOOSTER_ROLE_ID,
+            FATALITY_SEMI_LEGIT_ROLE_ID,
+            MEMESENSE_LEGIT_ROLE_ID,
+            MEMESENSE_SEMI_LEGIT_MAIN_ROLE_ID,
+            MEMESENSE_SEMI_LEGIT_VISUAL_ROLE_ID,
+            MEMESENSE_SEMI_RAGE_MAIN_ROLE_ID,
+            MEMESENSE_SEMI_RAGE_VISUAL_ROLE_ID,
+            MEMESENSE_STATS_BOOSTER_ROLE_ID,
         }
 
         await inter.response.defer(ephemeral=True)
@@ -1036,19 +1040,26 @@ class DevtoolCommands(commands.Cog):
         return None
 
     @staticmethod
-    def _role_for_code_slot(*, bundle: CodeBundleOption, branch: CodeBranchOption) -> int | None:
+    def _role_for_code_slot(
+        *,
+        product: CodeProductOption,
+        bundle: CodeBundleOption,
+        branch: CodeBranchOption,
+    ) -> int | None:
         """Resolve the access role tied to a config bundle/branch slot."""
-        role_map: dict[tuple[CodeBundleOption, CodeBranchOption], int] = {
-            ("Legit", "Main Branch"): LEGIT_ROLE_ID,
-            ("Legit", "Visual"): LEGIT_ROLE_ID,
-            ("Semi-Legit", "Main Branch"): SEMI_LEGIT_MAIN_ROLE_ID,
-            ("Semi-Legit", "Visual"): SEMI_LEGIT_VISUAL_ROLE_ID,
-            ("Semi-Rage", "Main Branch"): SEMI_RAGE_MAIN_ROLE_ID,
-            ("Semi-Rage", "Visual"): SEMI_RAGE_VISUAL_ROLE_ID,
-            ("Stats-Booster", "Main Branch"): STATS_BOOSTER_ROLE_ID,
-            ("Stats-Booster", "Visual"): STATS_BOOSTER_ROLE_ID,
+        role_map: dict[tuple[CodeProductOption, CodeBundleOption, CodeBranchOption], int] = {
+            ("memesense", "Legit", "Main Branch"): MEMESENSE_LEGIT_ROLE_ID,
+            ("memesense", "Legit", "Visual"): MEMESENSE_LEGIT_ROLE_ID,
+            ("memesense", "Semi-Legit", "Main Branch"): MEMESENSE_SEMI_LEGIT_MAIN_ROLE_ID,
+            ("memesense", "Semi-Legit", "Visual"): MEMESENSE_SEMI_LEGIT_VISUAL_ROLE_ID,
+            ("memesense", "Semi-Rage", "Main Branch"): MEMESENSE_SEMI_RAGE_MAIN_ROLE_ID,
+            ("memesense", "Semi-Rage", "Visual"): MEMESENSE_SEMI_RAGE_VISUAL_ROLE_ID,
+            ("memesense", "Stats-Booster", "Main Branch"): MEMESENSE_STATS_BOOSTER_ROLE_ID,
+            ("memesense", "Stats-Booster", "Visual"): MEMESENSE_STATS_BOOSTER_ROLE_ID,
+            ("fatality", "Semi-Legit", "Main Branch"): FATALITY_SEMI_LEGIT_ROLE_ID,
+            ("fatality", "Semi-Legit", "Visual"): FATALITY_SEMI_LEGIT_ROLE_ID,
         }
-        return role_map.get((bundle, branch))
+        return role_map.get((product, bundle, branch))
 
     @devtool_permission.autocomplete("permission")
     async def permission_autocomplete(
