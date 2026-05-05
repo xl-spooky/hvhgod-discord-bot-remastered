@@ -7,6 +7,7 @@ from collections.abc import Sequence
 import disnake
 from spooky.ext.constants import (
     FATALITY_ROLE_ID,
+    LEGIT_ROLE_ID,
     SEMI_LEGIT_MAIN_ROLE_ID,
     SEMI_LEGIT_VISUAL_ROLE_ID,
     SEMI_RAGE_MAIN_ROLE_ID,
@@ -54,7 +55,12 @@ def build_member_code_summary(
         if FATALITY_ROLE_ID not in member_role_ids:
             return "Open ticket to purchase the config."
         fatality_rows_by_role = codes_by_product_role.get("fatality", {})
-        all_rows = [row for rows in fatality_rows_by_role.values() for row in rows]
+        all_rows = [
+            row
+            for rows in fatality_rows_by_role.values()
+            for row in rows
+            if int(row.role_id) != LEGIT_ROLE_ID or LEGIT_ROLE_ID in member_role_ids
+        ]
         if not all_rows:
             return "⚠️ Not configured yet."
         ordered = sorted(
@@ -80,6 +86,8 @@ def build_member_code_summary(
         "Your currently available config codes are listed below "
         "based on your assigned roles.\n\n"
         "# Memesense\n"
+        "### Legit\n"
+        f"{_slot('memesense', LEGIT_ROLE_ID)}\n\n"
         "### Semi-Legit • Main Branch\n"
         f"{_slot('memesense', SEMI_LEGIT_MAIN_ROLE_ID)}\n\n"
         "### Semi-Legit • Visuals Add-On\n"

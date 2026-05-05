@@ -14,6 +14,7 @@ from spooky.db import get_session
 from spooky.ext.components.v2.card import status_card
 from spooky.ext.constants import (
     DEFAULT_BUYER_CATEGORY_ID,
+    LEGIT_ROLE_ID,
     OWNER_ID,
     REQUIRED_BUYER_ROLE_ID,
     SEMI_LEGIT_MAIN_ROLE_ID,
@@ -33,7 +34,7 @@ from thefuzz import process
 from .helpers import build_member_code_summary, group_codes_by_product_and_role
 
 PermissionAction = Literal["Add", "Remove"]
-CodeBundleOption = Literal["Semi-Legit", "Semi-Rage", "Stats-Booster"]
+CodeBundleOption = Literal["Legit", "Semi-Legit", "Semi-Rage", "Stats-Booster"]
 CodeBranchOption = Literal["Main Branch", "Visual"]
 CodeColorOption = Literal["Pink", "Purple", "Yellow", "Blue", "Red", "Green", "Black & White"]
 CodeProductOption = Literal["memesense", "fatality"]
@@ -852,6 +853,7 @@ class DevtoolCommands(commands.Cog):
             return
 
         tracked_roles = {
+            LEGIT_ROLE_ID,
             SEMI_LEGIT_MAIN_ROLE_ID,
             SEMI_LEGIT_VISUAL_ROLE_ID,
             SEMI_RAGE_MAIN_ROLE_ID,
@@ -928,6 +930,7 @@ class DevtoolCommands(commands.Cog):
             return
 
         tracked_roles = {
+            LEGIT_ROLE_ID,
             SEMI_LEGIT_MAIN_ROLE_ID,
             SEMI_LEGIT_VISUAL_ROLE_ID,
             SEMI_RAGE_MAIN_ROLE_ID,
@@ -1036,6 +1039,8 @@ class DevtoolCommands(commands.Cog):
     def _role_for_code_slot(*, bundle: CodeBundleOption, branch: CodeBranchOption) -> int | None:
         """Resolve the access role tied to a config bundle/branch slot."""
         role_map: dict[tuple[CodeBundleOption, CodeBranchOption], int] = {
+            ("Legit", "Main Branch"): LEGIT_ROLE_ID,
+            ("Legit", "Visual"): LEGIT_ROLE_ID,
             ("Semi-Legit", "Main Branch"): SEMI_LEGIT_MAIN_ROLE_ID,
             ("Semi-Legit", "Visual"): SEMI_LEGIT_VISUAL_ROLE_ID,
             ("Semi-Rage", "Main Branch"): SEMI_RAGE_MAIN_ROLE_ID,
