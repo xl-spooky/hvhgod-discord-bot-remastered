@@ -43,6 +43,9 @@ CodeProductOption = Literal["memesense", "fatality"]
 FUZZY_PERMISSION_SCORE_THRESHOLD = 65
 MAX_PERMISSION_CHOICES = 25
 BUYER_AUDIT_MISSING_PREVIEW_LIMIT = 20
+MASS_DM_DELAY_SECONDS = 3
+MASS_DM_PROGRESS_INTERVAL = 10
+DISCORD_MESSAGE_LIMIT = 2000
 
 __all__ = ["DevtoolCommands"]
 
@@ -145,6 +148,111 @@ class DevtoolCommands(commands.Cog):
                 message = f"Removed fake permission `{resolved_perm}` from {user.mention}"
 
         await inter.response.send_message(embed=status_card(True, message), ephemeral=True)
+
+    @devtool.sub_command(name="massdm")
+    async def devtool_massdm(
+        self,
+        inter: disnake.AppCmdInter[Spooky],
+        message: str,
+    ) -> None:
+        """DM all guild members that have the configured buyer role.
+
+        Parameters
+        ----------
+        message : str
+            Message content to send to each buyer-role member.
+        """
+        if inter.author.id != OWNER_ID:
+            await inter.response.send_message(
+                embed=status_card(False, "Only the configured owner can use /devtool."),
+                ephemeral=True,
+            )
+            return
+
+        guild = inter.guild
+        if guild is None:
+            await inter.response.send_message(
+                embed=status_card(False, "This command can only be used in a guild."),
+                ephemeral=True,
+            )
+            return
+
+        content = message.strip()
+        if not content:
+            await inter.response.send_message(
+                embed=status_card(False, "Provide a non-empty message."),
+                ephemeral=True,
+            )
+            return
+        if len(content) > DISCORD_MESSAGE_LIMIT:
+            await inter.response.send_message(
+                embed=status_card(
+                    False,
+                    (
+                        "Message is too long. Discord DMs are limited to "
+                        f"{DISCORD_MESSAGE_LIMIT} characters."
+                    ),
+                ),
+                ephemeral=True,
+            )
+            return
+
+        buyer_role = guild.get_role(REQUIRED_BUYER_ROLE_ID)
+        if buyer_role is None:
+            await inter.response.send_message(
+                embed=status_card(False, "The configured buyer role was not found in this guild."),
+                ephemeral=True,
+            )
+            return
+
+        buyers = [
+            member
+            for member in guild.members
+            if any(role.id == REQUIRED_BUYER_ROLE_ID for role in member.roles)
+        ]
+        if not buyers:
+            await inter.response.send_message(
+                embed=status_card(False, "No members with the required buyer role were found."),
+                ephemeral=True,
+            )
+            return
+
+        await inter.response.defer(ephemeral=True)
+
+        sent = 0
+        failed = 0
+        for index, member in enumerate(buyers, start=1):
+            try:
+                await member.send(content)
+            except (disnake.Forbidden, disnake.HTTPException):
+                failed += 1
+            else:
+                sent += 1
+
+            if index < len(buyers):
+                await asyncio.sleep(MASS_DM_DELAY_SECONDS)
+
+            if index % MASS_DM_PROGRESS_INTERVAL == 0 and index < len(buyers):
+                with suppress(disnake.HTTPException):
+                    await inter.edit_original_response(
+                        embed=status_card(
+                            True,
+                            (
+                                f"Mass DM running. Processed: {index}/{len(buyers)}. "
+                                f"Sent: {sent}. Failed: {failed}."
+                            ),
+                        )
+                    )
+
+        await inter.edit_original_response(
+            embed=status_card(
+                True,
+                (
+                    f"Mass DM complete. Buyer role: {buyer_role.mention}. "
+                    f"Sent: {sent}/{len(buyers)}. Failed: {failed}."
+                ),
+            )
+        )
 
     @devtool.sub_command_group(name="buyer")
     async def devtool_buyer(self, inter: disnake.AppCmdInter[Spooky]) -> None:
